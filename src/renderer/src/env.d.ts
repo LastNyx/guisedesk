@@ -67,6 +67,8 @@ interface Window {
     dialog(open: boolean): void
     /** Top bar Reload: reloads the account's view, or wakes it when asleep. */
     reload(id: string): void
+    /** Sleep now (D27): unloads the account's view; it wakes on Wake up, Reload or reselect. */
+    sleepNow(id: string): void
     /** Mute or unmute an account (D19). */
     mute(id: string, muted: boolean): Promise<Snapshot>
     /** Settings was opened from the tray. */

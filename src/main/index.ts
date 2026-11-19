@@ -221,14 +221,14 @@ function show(win: BrowserWindow, a: Account, push: () => void): void {
   attach(win, v)
 }
 
-function sleepAccount(a: Account): void {
+function sleepAccount(a: Account, minutes = limitMinutes(a) ?? 0): void {
   const v = views.get(a.id)
   if (v) {
     owner.delete(v.webContents.id)
     views.delete(a.id)
     v.webContents.close()
   }
-  sleepState[a.id] = { minutes: limitMinutes(a) ?? 0, waking: false }
+  sleepState[a.id] = { minutes, waking: false }
 }
 
 function setDialog(win: BrowserWindow, open: boolean): void {
@@ -515,6 +515,19 @@ function createWindow(): BrowserWindow {
     if (!a) return
     if (hib.isAsleep(a.id)) show(win, a, pushSleep)
     else views.get(a.id)?.webContents.reload()
+  })
+  // Sleep now (D27): works on any account; minutes 0 marks it manual. The selected one is detached so the asleep panel shows.
+  gipc.on('accounts:sleep', (e: { sender: { id: number } }, id: string) => {
+    const a = fromApp(e) && enabled().find((x) => x.id === id)
+    if (!a || hib.isAsleep(a.id)) return
+    if (attachedId === a.id && attached) {
+      detach(win, attached)
+      attached = undefined
+      attachedId = undefined
+    }
+    hib.sleep(a.id)
+    sleepAccount(a, 0)
+    pushSleep()
   })
   gipc.on('ui:dialog', (_e: unknown, open: boolean) => setDialog(win, !!open))
   gipc.handle('accounts:mute', (_e: unknown, id: string, muted: boolean) => {

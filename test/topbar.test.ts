@@ -29,7 +29,7 @@ describe('TopBar', () => {
   it('Reload, Mute, Lock and Settings buttons emit their actions; bell-off when muted', async () => {
     const w = mount(TopBar, { props: { account: wa, asleep: false } })
     const b = w.findAll('.actions .ib')
-    expect(b).toHaveLength(4)
+    expect(b).toHaveLength(5)
     for (const x of b) await x.trigger('click')
     expect(w.emitted('reload')).toHaveLength(1)
     expect(w.emitted('mute')).toEqual([[true]])
@@ -39,6 +39,18 @@ describe('TopBar', () => {
     expect(m.find('[aria-label="Unmute"]').exists()).toBe(true)
     await m.find('[aria-label="Unmute"]').trigger('click')
     expect(m.emitted('mute')).toEqual([[false]])
+  })
+})
+
+describe('TopBar Sleep now', () => {
+  it('shows a Sleep now button left of Lock only when awake, and emits sleep', async () => {
+    const w = mount(TopBar, { props: { account: wa, asleep: false } })
+    const labels = w.findAll('.actions .ib').map((b) => b.attributes('aria-label'))
+    expect(labels.indexOf('Sleep now')).toBe(labels.indexOf('Lock now') - 1)
+    expect(w.find('[aria-label="Sleep now"]').attributes('title')).toBe('Sleep now')
+    await w.find('[aria-label="Sleep now"]').trigger('click')
+    expect(w.emitted('sleep')).toHaveLength(1)
+    expect(mount(TopBar, { props: { account: wa, asleep: true } }).find('[aria-label="Sleep now"]').exists()).toBe(false)
   })
 })
 
@@ -67,6 +79,7 @@ async function app(over: Record<string, unknown> = {}, lock = 'unlocked') {
     dialog: vi.fn(),
     lock: vi.fn(),
     reload: vi.fn(),
+    sleepNow: vi.fn(),
     mute: vi.fn(async () => ({ accounts: [{ ...wa, muted: true }, ig], selectedId: 'wa1', disabledServices: [] })),
     ...over
   }
@@ -88,8 +101,10 @@ describe('App top bar', () => {
     expect(g.mute).toHaveBeenCalledWith('wa1', true)
     expect(w.find('.top .chip').text()).toBe('Muted')
     await b[2].trigger('click')
-    expect(g.lock).toHaveBeenCalled()
+    expect(g.sleepNow).toHaveBeenCalledWith('wa1')
     await b[3].trigger('click')
+    expect(g.lock).toHaveBeenCalled()
+    await b[4].trigger('click')
     expect(w.find('.top .actions').exists()).toBe(false)
     expect(w.findComponent({ name: 'AccountSheet' }).exists()).toBe(true)
   })

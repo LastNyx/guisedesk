@@ -70,6 +70,20 @@ describe('hibernation scheduler', () => {
     expect(h.sweep(accounts, 'th')).toEqual(['ig'])
   })
 
+  it('manual sleep marks any account asleep, selected and chat included, the sweep leaves it, and wake clears it', () => {
+    let t = 0
+    const h = createHibernator(() => t)
+    const accounts = [acc('wa', 'whatsapp'), acc('ig', 'instagram')]
+    h.sweep(accounts, 'wa')
+    h.sleep('wa')
+    expect(h.isAsleep('wa')).toBe(true)
+    t = 90 * MIN
+    expect(h.sweep(accounts, 'wa')).toEqual(['ig'])
+    expect(h.isAsleep('wa')).toBe(true)
+    h.wake('wa')
+    expect(h.isAsleep('wa')).toBe(false)
+  })
+
   it('an asleep account is dropped by decideNotification', () => {
     let t = 0
     const h = createHibernator(() => t)

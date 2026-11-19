@@ -20,6 +20,14 @@ describe('AsleepPanel', () => {
   })
 })
 
+describe('AsleepPanel manual sleep', () => {
+  it('with minutes 0 says Unloaded to save memory with no minutes text', () => {
+    const w = mount(AsleepPanel, { props: { account: ig, minutes: 0 } })
+    expect(w.find('p').text()).toContain('Unloaded to save memory.')
+    expect(w.find('p').text()).not.toContain('minutes')
+  })
+})
+
 describe('Sidebar asleep rows', () => {
   it('dims asleep rows and shows ZZ in place of the count', () => {
     const w = mount(Sidebar, { props: { accounts: [ig, { ...ig, id: 'x1', serviceId: 'x', order: 2 }], asleep: ['ig1'], counts: { ig1: 4 } } })

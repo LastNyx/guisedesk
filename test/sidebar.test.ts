@@ -93,6 +93,17 @@ describe('Sidebar', () => {
     expect(c.emitted('mute')![1]).toEqual(['dc1', false])
   })
 
+  it('right-click menu has Sleep now between Mute and Account settings for awake accounts only, and emits sleep with the id', async () => {
+    const c = mount(Sidebar, { props: { accounts: [acc('dc1', 'discord', 'ben_n', 0), acc('wa1', 'whatsapp', 'Personal', 1)], asleep: ['dc1'] } })
+    await c.findAll('.row')[1].trigger('contextmenu')
+    expect(c.findAll('.ctx .mi').map((m) => m.text())).toEqual(['Mute', 'Sleep now', 'Account settings'])
+    await c.findAll('.ctx .mi')[1].trigger('click')
+    expect(c.emitted('sleep')![0]).toEqual(['wa1'])
+    expect(c.find('.ctx').exists()).toBe(false)
+    await c.findAll('.row')[0].trigger('contextmenu')
+    expect(c.findAll('.ctx .mi').map((m) => m.text())).toEqual(['Mute', 'Account settings'])
+  })
+
   describe('collapsed rail', () => {
     const counts = { wa1: 3, dc1: 150 }
     const c = mount(Sidebar, { props: { accounts, selectedId: 'dc1', counts, asleep: ['x1'], collapsed: true } })
