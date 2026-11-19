@@ -167,3 +167,14 @@ export function setIdlePolicy(dir: string, id: string, policy: string): Account[
   saveAccounts(dir, accounts)
   return accounts
 }
+
+/** Drag reorder (D28): rewrites order 0..n-1 by the listed ids; unlisted accounts follow in their old order. Throws on an unknown or duplicate id. */
+export function reorderAccounts(dir: string, ids: string[]): Account[] {
+  const all = orderedAccounts(loadAccounts(dir))
+  if (new Set(ids).size !== ids.length) throw new Error('Duplicate account id')
+  if (ids.some((id) => !all.some((a) => a.id === id))) throw new Error('Unknown account id')
+  const listed = ids.map((id) => all.find((a) => a.id === id)!)
+  const accounts = [...listed, ...all.filter((a) => !ids.includes(a.id))].map((a, order) => ({ ...a, order }))
+  saveAccounts(dir, accounts)
+  return accounts
+}

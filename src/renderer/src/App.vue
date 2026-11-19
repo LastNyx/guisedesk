@@ -104,6 +104,10 @@ async function mute(id: string, muted: boolean) {
   take(await window.guisedesk.mute(id, muted))
 }
 
+async function reorder(ids: string[]) {
+  take(await window.guisedesk.reorder(ids))
+}
+
 function sleepNow(id: string) {
   window.guisedesk.sleepNow(id)
 }
@@ -181,7 +185,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
   <ResetScreen v-else-if="resetting" @cancel="resetting = false" />
   <LockScreen v-else-if="lockInfo.state === 'locked'" :kind="lockInfo.kind ?? 'pin'" :pin-length="lockInfo.pinLength" :wait-until="lockInfo.waitUntil" @forgot="resetting = true" />
   <div v-else class="shell">
-    <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @settings="openSettings" @account="openSheet" />
+    <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
     <main class="main">
       <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" />
       <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" />

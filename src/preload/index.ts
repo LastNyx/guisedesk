@@ -64,6 +64,7 @@ if (service) {
   dialog: (open: boolean) => ipcRenderer.send('ui:dialog', open),
   reload: (id: string) => ipcRenderer.send('accounts:reload', id),
   sleepNow: (id: string) => ipcRenderer.send('accounts:sleep', id),
+  reorder: (ids: string[]) => ipcRenderer.invoke('accounts:reorder', ids),
   mute: (id: string, muted: boolean) => ipcRenderer.invoke('accounts:mute', id, muted),
   onOpenSettings: (cb: () => void) => ipcRenderer.on('settings:open', () => cb()),
   setServiceEnabled: (serviceId: string, enabled: boolean) => ipcRenderer.invoke('services:set', serviceId, enabled),

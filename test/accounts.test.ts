@@ -3,7 +3,7 @@ import * as realFs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { addAccount, loadAccounts, loadDnd, loadSelected, loadSidebarCollapsed, orderedAccounts, saveAccounts, saveDnd, saveSelected, saveSidebarCollapsed, setMuted } from '../src/main/accounts'
+import { addAccount, loadAccounts, loadDnd, loadSelected, loadSidebarCollapsed, orderedAccounts, saveAccounts, saveDnd, saveSelected, reorderAccounts, saveSidebarCollapsed, setMuted } from '../src/main/accounts'
 import { PRESETS } from '../src/main/presets'
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'gd-acc-'))
@@ -121,5 +121,23 @@ describe('mute and Do Not Disturb persistence', () => {
     expect(loadDnd(dir)).toBe(true)
     saveDnd(dir, false)
     expect(loadDnd(dir)).toBe(false)
+  })
+  it('reorderAccounts saves the new order and it reads back sorted', () => {
+    const dir = tmp()
+    const mk = (id: string, order: number) => ({ id, serviceId: 'whatsapp', label: id, colour: '#000', order })
+    saveAccounts(dir, [mk('a', 0), mk('b', 1), mk('c', 2)])
+    const out = reorderAccounts(dir, ['c', 'a', 'b'])
+    expect(orderedAccounts(loadAccounts(dir)).map((a) => [a.id, a.order])).toEqual([['c', 0], ['a', 1], ['b', 2]])
+    expect(orderedAccounts(out).map((a) => a.id)).toEqual(['c', 'a', 'b'])
+  })
+  it('reorderAccounts rejects unknown and duplicate ids and keeps unlisted accounts in their order after the listed ones', () => {
+    const dir = tmp()
+    const mk = (id: string, order: number) => ({ id, serviceId: 'whatsapp', label: id, colour: '#000', order })
+    saveAccounts(dir, [mk('a', 0), mk('b', 1), mk('c', 2), mk('d', 3)])
+    expect(() => reorderAccounts(dir, ['a', 'zzz'])).toThrow()
+    expect(() => reorderAccounts(dir, ['a', 'a'])).toThrow()
+    expect(orderedAccounts(loadAccounts(dir)).map((a) => a.id)).toEqual(['a', 'b', 'c', 'd'])
+    reorderAccounts(dir, ['d', 'b'])
+    expect(orderedAccounts(loadAccounts(dir)).map((a) => [a.id, a.order])).toEqual([['d', 0], ['b', 1], ['a', 2], ['c', 3]])
   })
 })

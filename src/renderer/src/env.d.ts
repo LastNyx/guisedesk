@@ -69,6 +69,8 @@ interface Window {
     reload(id: string): void
     /** Sleep now (D27): unloads the account's view; it wakes on Wake up, Reload or reselect. */
     sleepNow(id: string): void
+    /** Drag reorder (D28): full id list in the new order. */
+    reorder(ids: string[]): Promise<Snapshot>
     /** Mute or unmute an account (D19). */
     mute(id: string, muted: boolean): Promise<Snapshot>
     /** Settings was opened from the tray. */

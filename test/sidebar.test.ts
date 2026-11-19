@@ -104,6 +104,52 @@ describe('Sidebar', () => {
     expect(c.findAll('.ctx .mi').map((m) => m.text())).toEqual(['Mute', 'Account settings'])
   })
 
+  describe('drag to reorder (D28)', () => {
+    const drag = async (c: ReturnType<typeof mount>, from: number, to: number) => {
+      const rows = c.findAll('.row')
+      await rows[from].trigger('dragstart')
+      await rows[to].trigger('dragover')
+      await rows[to].trigger('drop')
+      await rows[from].trigger('dragend')
+    }
+
+    it('dropping a row on another row of the same group emits the full id list in the new order', async () => {
+      const c = mount(Sidebar, { props: { accounts } })
+      await drag(c, 0, 1)
+      expect(c.emitted('reorder')![0]).toEqual([['ig1', 'dc1', 'wa1', 'x1', 'fb1', 'th1', 'tt1']])
+    })
+
+    it('shows a drop indicator on the target while dragging, and clears it after the drop', async () => {
+      const c = mount(Sidebar, { props: { accounts } })
+      const rows = c.findAll('.row')
+      await rows[3].trigger('dragstart')
+      await rows[5].trigger('dragover')
+      expect(rows[5].classes().some((k) => k.startsWith('drop'))).toBe(true)
+      await rows[0].trigger('dragover')
+      expect(rows[0].classes().some((k) => k.startsWith('drop'))).toBe(false)
+      await rows[5].trigger('drop')
+      expect(rows[5].classes().some((k) => k.startsWith('drop'))).toBe(false)
+    })
+
+    it('works in the rail and ignores a drop on a row of the other group', async () => {
+      const c = mount(Sidebar, { props: { accounts, collapsed: true } })
+      await drag(c, 2, 0)
+      expect(c.emitted('reorder')).toBeUndefined()
+      await drag(c, 4, 6)
+      expect(c.emitted('reorder')![0]).toEqual([['wa1', 'ig1', 'dc1', 'x1', 'th1', 'tt1', 'fb1']])
+    })
+
+    it('rows are draggable, a click still selects and right-click still opens the menu', async () => {
+      const c = mount(Sidebar, { props: { accounts } })
+      const row = c.findAll('.row')[0]
+      expect(row.attributes('draggable')).toBe('true')
+      await row.trigger('click')
+      expect(c.emitted('select')![0]).toEqual(['wa1'])
+      await row.trigger('contextmenu')
+      expect(c.find('.ctx').exists()).toBe(true)
+    })
+  })
+
   describe('collapsed rail', () => {
     const counts = { wa1: 3, dc1: 150 }
     const c = mount(Sidebar, { props: { accounts, selectedId: 'dc1', counts, asleep: ['x1'], collapsed: true } })

@@ -129,6 +129,9 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 
 /* Hibernation (frames 1 and 5). */
 .row.sleep { opacity: 0.45; }
+.row.drop-before::before, .row.drop-after::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); }
+.row.drop-before::before { top: -2px; }
+.row.drop-after::after { bottom: -2px; }
 .zz { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--dim); min-width: 20px; text-align: right; }
 .asleep { flex: 1; border-radius: 10px; display: grid; place-items: center; text-align: center; background: var(--side); border: 1px solid var(--line); }
 .asleep .bigav { width: 88px; height: 88px; margin: 0 auto 20px; font-size: 28px; opacity: 0.6; }

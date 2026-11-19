@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, setMuted, setServiceEnabled, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setServiceEnabled, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -451,6 +451,17 @@ function createWindow(): BrowserWindow {
     if (typeof serviceId !== 'string') return snapshot()
     disabled = new Set(setServiceEnabled(dir, serviceId, !!on))
     reconcile()
+    return snapshot()
+  })
+  // Drag reorder (D28): a bad id list is ignored and the current snapshot returned.
+  gipc.handle('accounts:reorder', (_e: unknown, ids: unknown) => {
+    if (!Array.isArray(ids) || !ids.every((x) => typeof x === 'string')) return snapshot()
+    try {
+      accounts = orderedAccounts(reorderAccounts(dir, ids))
+    } catch (err) {
+      console.error('reorder failed:', err)
+    }
+    push()
     return snapshot()
   })
   gipc.handle('accounts:policy', (_e: unknown, id: string, policy: string) => {
