@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import AddAccount from './AddAccount.vue'
+import AccountSheet from './AccountSheet.vue'
 import AsleepPanel from './AsleepPanel.vue'
 import LockScreen from './LockScreen.vue'
 import ResetScreen from './ResetScreen.vue'
+import Settings from './Settings.vue'
 import SetupScreen from './SetupScreen.vue'
 import Sidebar from './Sidebar.vue'
+import { visibleAccounts } from '../../main/services'
 
 const accounts = ref<AccountRow[]>([])
 const selectedId = ref<string | undefined>()
@@ -14,6 +17,13 @@ const counts = ref<Record<string, number>>({})
 const sleep = ref<Record<string, { minutes: number; waking: boolean }>>({})
 const asleepIds = computed(() => Object.keys(sleep.value).filter((id) => !sleep.value[id].waking))
 const sleeping = computed(() => accounts.value.find((a) => a.id === selectedId.value && sleep.value[a.id]))
+// Services switched off in Settings (D6): their accounts stay in `accounts` (and in the store) but leave the sidebar.
+const disabled = ref<string[]>([])
+const shown = computed(() => visibleAccounts(accounts.value, disabled.value))
+// Settings fills the main area; main detaches the service view while it is open (like a dialog). The sheet only exists inside it.
+const settingsOpen = ref(false)
+const sheetId = ref<string | undefined>()
+const sheetAccount = computed(() => accounts.value.find((a) => a.id === sheetId.value))
 const adding = ref(false)
 const addError = ref('')
 // Main owns the lock. The renderer asks for account data only while main says 'unlocked', and drops all of it on lock.
@@ -26,6 +36,7 @@ async function loadAccounts() {
   const s = await window.guisedesk.state()
   accounts.value = s.accounts
   selectedId.value = s.selectedId
+  disabled.value = s.disabledServices
   counts.value = await window.guisedesk.unread()
   sleep.value = await window.guisedesk.sleep()
 }
@@ -37,6 +48,9 @@ function wipe() {
   sleep.value = {}
   adding.value = false
   addError.value = ''
+  disabled.value = []
+  settingsOpen.value = false
+  sheetId.value = undefined
 }
 
 async function apply(info: LockInfo) {
@@ -51,20 +65,71 @@ onMounted(async () => {
   window.guisedesk.onLock((info) => void apply(info))
   window.guisedesk.onSleep((s) => (sleep.value = s))
   window.guisedesk.onUnread((c) => (counts.value = { ...c }))
-  window.guisedesk.onSelected((id) => (selectedId.value = id))
+  window.guisedesk.onSelected((id) => {
+    selectedId.value = id
+    closeSettings()
+  })
+  window.guisedesk.onOpenSettings(() => lockInfo.value.state === 'unlocked' && openSettings())
   await apply(await window.guisedesk.lockState())
-  // Dev-only: the screenshot hook opens the dialog via ?dialog=add.
+  // Dev-only: the screenshot hook opens the dialog via ?dialog=add (or settings, with ?sheet=<account id>).
   if (lockInfo.value.state === 'unlocked' && new URLSearchParams(location.search).get('dialog') === 'add') openAdd()
+  if (lockInfo.value.state === 'unlocked' && new URLSearchParams(location.search).get('dialog') === 'settings') {
+    openSettings()
+    const id = new URLSearchParams(location.search).get('sheet')
+    if (id) sheetId.value = id
+  }
   if (lockInfo.value.state === 'locked' && new URLSearchParams(location.search).get('dialog') === 'reset') resetting.value = true
 })
 
 function select(id: string) {
+  closeSettings()
   selectedId.value = id
   window.guisedesk.select(id)
 }
 
+function take(s: Snapshot) {
+  accounts.value = s.accounts
+  selectedId.value = s.selectedId
+  disabled.value = s.disabledServices
+}
+
 async function mute(id: string, muted: boolean) {
-  accounts.value = (await window.guisedesk.mute(id, muted)).accounts
+  take(await window.guisedesk.mute(id, muted))
+}
+
+function openSettings() {
+  if (settingsOpen.value) return
+  settingsOpen.value = true
+  window.guisedesk.dialog(true)
+}
+
+function closeSettings() {
+  sheetId.value = undefined
+  if (!settingsOpen.value) return
+  settingsOpen.value = false
+  window.guisedesk.dialog(false)
+}
+
+function openSheet(id: string) {
+  openSettings()
+  sheetId.value = id
+}
+
+async function toggleService(serviceId: string, enabled: boolean) {
+  take(await window.guisedesk.setServiceEnabled(serviceId, enabled))
+}
+
+async function setPolicy(id: string, policy: string) {
+  take(await window.guisedesk.setPolicy(id, policy))
+}
+
+async function logout(id: string) {
+  take(await window.guisedesk.logout(id))
+}
+
+async function removeAccount(id: string) {
+  sheetId.value = undefined
+  take(await window.guisedesk.remove(id))
 }
 
 function openAdd() {
@@ -83,8 +148,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
     addError.value = r.error
     return
   }
-  accounts.value = r.accounts
-  selectedId.value = r.selectedId
+  take(r)
   closeAdd()
 }
 </script>
@@ -95,11 +159,21 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
   <ResetScreen v-else-if="lockInfo.state === 'locked' && resetting" @cancel="resetting = false" />
   <LockScreen v-else-if="lockInfo.state === 'locked'" :kind="lockInfo.kind ?? 'pin'" :pin-length="lockInfo.pinLength" :wait-until="lockInfo.waitUntil" @forgot="resetting = true" />
   <div v-else class="shell">
-    <Sidebar :accounts="accounts" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" @select="select" @add="openAdd" @mute="mute" />
+    <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" @select="select" @add="openAdd" @mute="mute" @settings="openSettings" @account="openSheet" />
     <main class="main">
-      <AsleepPanel v-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
+      <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" />
+      <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
       <div v-else class="panel"></div>
     </main>
+    <AccountSheet
+      v-if="settingsOpen && sheetAccount"
+      :account="sheetAccount"
+      @policy="(v) => setPolicy(sheetAccount!.id, v)"
+      @mute="(m) => mute(sheetAccount!.id, m)"
+      @logout="logout(sheetAccount!.id)"
+      @remove="removeAccount(sheetAccount!.id)"
+      @done="sheetId = undefined"
+    />
     <AddAccount v-if="adding" :server-error="addError" @add="add" @cancel="closeAdd" />
   </div>
 </template>

@@ -71,7 +71,7 @@ describe('Sidebar', () => {
     })
     const rows = c.findAll('.row')
     expect(rows[0].find('.count').classes()).toContain('muted')
-    expect(rows[0].find('.name').text()).toBe('ben_nDiscord - muted')
+    expect(rows[0].find('.name').text()).toBe('ben_nDiscord · muted')
     expect(rows[1].find('.count').classes()).not.toContain('muted')
     expect(rows[1].find('.name').text()).toBe('PersonalWhatsApp')
   })

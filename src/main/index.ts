@@ -3,7 +3,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { dataDir } from './paths'
-import { addAccount, loadAccounts, loadDnd, loadIdleMinutes, loadSelected, orderedAccounts, saveDnd, saveSelected, setMuted, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, setMuted, setServiceEnabled, type Account } from './accounts'
+import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
 import { validateNewAccount } from './validate'
@@ -52,6 +53,8 @@ let onCounts: () => void = () => {}
 let quitting = false
 // Global Do Not Disturb (D19), loaded from settings in createWindow.
 let dnd = false
+// Services switched off in Settings (D6): hidden from the sidebar, no notifications, sessions kept.
+let disabled = new Set<string>()
 // Which account a service view's webContents belongs to, for notification IPC.
 const owner = new Map<number, Account>()
 // Hibernation (D7): sleep = view destroyed, partition kept. sleepState feeds the sidebar (ZZ) and the asleep panel.
@@ -151,7 +154,7 @@ function notify(win: BrowserWindow, a: Account, p: { title?: string; body?: stri
       body: String(p.body ?? '').slice(0, 1000),
       icon: p.icon
     },
-    { muted: a.muted, dnd, asleep: hib.isAsleep(a.id), locked: !isUnlocked() }
+    { muted: a.muted, dnd, asleep: hib.isAsleep(a.id), locked: !isUnlocked(), disabled: disabled.has(a.serviceId) }
   )
   if (d.action === 'drop' || !Notification.isSupported()) return
   // Linux has no subtitle: the service line goes under the body (frame 7).
@@ -233,7 +236,11 @@ function createWindow(): BrowserWindow {
     }
   })
   // Dev-only: GUISEDESK_SHOT_DIALOG=add opens the Add account dialog, =reset the reset confirm screen, for the screenshot.
-  const dialogQuery = process.env.GUISEDESK_SHOT && ['add', 'reset'].includes(process.env.GUISEDESK_SHOT_DIALOG ?? '') ? `dialog=${process.env.GUISEDESK_SHOT_DIALOG}` : ''
+  // =settings opens Settings with the sheet of account GUISEDESK_SHOT_SHEET.
+  const dialogQuery =
+    process.env.GUISEDESK_SHOT && ['add', 'reset', 'settings'].includes(process.env.GUISEDESK_SHOT_DIALOG ?? '')
+      ? `dialog=${process.env.GUISEDESK_SHOT_DIALOG}&sheet=${encodeURIComponent(process.env.GUISEDESK_SHOT_SHEET ?? '')}`
+      : ''
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL + (dialogQuery && `?${dialogQuery}`))
   else win.loadFile(join(__dirname, '../renderer/index.html'), { search: dialogQuery })
 
@@ -242,7 +249,12 @@ function createWindow(): BrowserWindow {
     win.focus()
   }
   dnd = loadDnd(dir)
-  const tray = createTray(showWindow, () => lock.lock(), dnd, (on) => {
+  // Tray Settings: raise the window, and open the screen only when unlocked (the renderer ignores it otherwise too).
+  const openSettings = () => {
+    showWindow()
+    if (isUnlocked()) win.webContents.send('settings:open')
+  }
+  const tray = createTray(showWindow, () => lock.lock(), openSettings, dnd, (on) => {
     dnd = on
     saveDnd(dir, on)
   })
@@ -253,15 +265,18 @@ function createWindow(): BrowserWindow {
     win.hide()
   })
 
+  disabled = new Set(loadDisabled(dir))
   let accounts = orderedAccounts(loadAccounts(dir))
+  const enabled = () => accounts.filter((a) => !disabled.has(a.serviceId))
   let selectedId = loadSelected(dir)
-  if (!accounts.some((a) => a.id === selectedId)) selectedId = accounts[0]?.id
+  if (!enabled().some((a) => a.id === selectedId)) selectedId = enabled()[0]?.id
   // Custom icons are cached files; the renderer gets them as data URLs.
   const snapshot = () => ({
     accounts: accounts.map((a) =>
       a.custom ? { ...a, custom: { ...a.custom, icon: readIcon(dir, a.custom.icon) } } : a
     ),
-    selectedId
+    selectedId,
+    disabledServices: [...disabled]
   })
   const fromApp = (e: { sender: { id: number } }) => e.sender.id === win.webContents.id
   ipcMain.removeHandler('lock:state')
@@ -354,6 +369,79 @@ function createWindow(): BrowserWindow {
   }
   gipc.handle('unread:get', () => ({ ...counts }))
   push()
+  // Selected account gone or its service switched off: show the first account still in the sidebar, or none.
+  const reconcile = () => {
+    if (enabled().some((a) => a.id === selectedId)) return
+    if (attached) detach(win, attached)
+    attached = undefined
+    attachedId = undefined
+    const next = enabled()[0]
+    selectedId = next?.id
+    if (!next) return
+    saveSelected(dir, next.id)
+    show(win, next, pushSleep)
+  }
+  gipc.handle('services:set', (_e: unknown, serviceId: string, on: boolean) => {
+    if (typeof serviceId !== 'string') return snapshot()
+    disabled = new Set(setServiceEnabled(dir, serviceId, !!on))
+    reconcile()
+    return snapshot()
+  })
+  gipc.handle('accounts:policy', (_e: unknown, id: string, policy: string) => {
+    if (!accounts.some((a) => a.id === id) || !IDLE_POLICIES.includes(policy)) return snapshot()
+    accounts = orderedAccounts(setIdlePolicy(dir, id, policy))
+    const held = owner.get(views.get(id)?.webContents.id ?? -1)
+    if (held) held.idlePolicy = policy
+    return snapshot()
+  })
+  const clearStorage = async (id: string) => {
+    const ses = session.fromPartition(`persist:${id}`)
+    await ses.clearStorageData().catch(() => {})
+    await ses.clearCache().catch(() => {})
+  }
+  gipc.handle('accounts:logout', async (_e: unknown, id: string) => {
+    const a = accounts.find((x) => x.id === id)
+    if (!a) return snapshot()
+    await logOut(dir, id, {
+      clearStorage,
+      closeView: () => {},
+      reloadView: () => {
+        const preset = presetFor(a.serviceId)
+        void views.get(id)?.webContents.loadURL(preset?.startUrl ?? a.custom?.url ?? 'about:blank')
+      }
+    })
+    return snapshot()
+  })
+  gipc.handle('accounts:remove', async (_e: unknown, id: string) => {
+    if (!accounts.some((a) => a.id === id)) return snapshot()
+    try {
+      await removeAccount(dir, id, {
+        clearStorage,
+        reloadView: () => {},
+        closeView: () => {
+          const v = views.get(id)
+          if (!v) return
+          if (attached === v) {
+            detach(win, v)
+            attached = undefined
+            attachedId = undefined
+          }
+          owner.delete(v.webContents.id)
+          views.delete(id)
+          v.webContents.close()
+        }
+      })
+    } catch (err) {
+      console.error('remove account failed:', err)
+    }
+    accounts = orderedAccounts(loadAccounts(dir))
+    delete counts[id]
+    delete sleepState[id]
+    reconcile()
+    push()
+    pushSleep()
+    return snapshot()
+  })
   gipc.on('ui:dialog', (_e: unknown, open: boolean) => setDialog(win, !!open))
   gipc.handle('accounts:mute', (_e: unknown, id: string, muted: boolean) => {
     if (!accounts.some((a) => a.id === id)) return snapshot()
@@ -375,7 +463,7 @@ function createWindow(): BrowserWindow {
     return snapshot()
   })
   gipc.on('accounts:select', (_e: unknown, id: string) => {
-    const a = accounts.find((x) => x.id === id)
+    const a = enabled().find((x) => x.id === id)
     if (!a) return
     selectedId = id
     saveSelected(dir, id)
@@ -384,7 +472,7 @@ function createWindow(): BrowserWindow {
   const selectFromNotification = (a: Account) => {
     win.show()
     win.focus()
-    if (!isUnlocked()) return // a click while locked only raises the window
+    if (!isUnlocked() || disabled.has(a.serviceId)) return // a click while locked only raises the window
     selectedId = a.id
     saveSelected(dir, a.id)
     show(win, a, pushSleep)

@@ -14,6 +14,8 @@ export interface NotifyState {
   dnd?: boolean
   asleep?: boolean
   locked?: boolean
+  /** The account's service is switched off in Settings (D6). */
+  disabled?: boolean
 }
 
 export type NotifyDecision =
@@ -22,7 +24,7 @@ export type NotifyDecision =
   | { action: 'full'; accountId: string; title: string; body: string; subtitle: string; icon?: string }
 
 export function decideNotification(event: NotifyEvent, state: NotifyState): NotifyDecision {
-  if (state.muted || state.dnd || state.asleep) return { action: 'drop' }
+  if (state.muted || state.dnd || state.asleep || state.disabled) return { action: 'drop' }
   if (state.locked)
     return { action: 'generic', accountId: event.accountId, title: 'GuiseDesk', body: 'New message', subtitle: '' }
   return {

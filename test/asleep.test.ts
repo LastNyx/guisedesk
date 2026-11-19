@@ -41,10 +41,11 @@ describe('App asleep panel', () => {
     ;(window as unknown as { guisedesk: unknown }).guisedesk = {
       lockState: async () => ({ state: 'unlocked' }),
       onLock: () => {},
-      state: async () => ({ accounts: [ig], selectedId: 'ig1' }),
+      state: async () => ({ accounts: [ig], selectedId: 'ig1', disabledServices: [] }),
       unread: async () => ({}),
       onUnread: () => {},
       onSelected: () => {},
+      onOpenSettings: () => {},
       sleep: async () => ({ ig1: { minutes: 30, waking: false } }),
       onSleep: (cb: typeof push) => (push = cb),
       select,

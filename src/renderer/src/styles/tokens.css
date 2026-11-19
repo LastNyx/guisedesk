@@ -143,3 +143,43 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .seg { display: inline-flex; margin-bottom: 16px; border-radius: 8px; border: 1px solid #ffffff18; overflow: hidden; }
 .seg span { padding: 4px 14px; font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; }
 .seg span.sel { background: var(--text); color: var(--win); }
+
+/* Settings: services list and account sheet (frame 3, v5 compact sizes). */
+.brand .ib + .ib { margin-left: -4px; }
+.settings { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
+.top { display: flex; align-items: center; gap: 10px; height: 34px; margin-bottom: 12px; flex: none; }
+.top .title { font-size: 16px; font-weight: 700; }
+.tabs { display: flex; gap: 22px; margin-bottom: 12px; border-bottom: 1px solid var(--line); flex: none; }
+.tabs span { padding: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.tabs span.sel { color: var(--text); box-shadow: inset 0 -2px 0 var(--text); }
+.cards { display: grid; gap: 10px; }
+.card { border-radius: 10px; background: var(--card); border: 1px solid var(--line); padding: 2px 16px; }
+.card h4 { margin: 10px 0 2px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.sr { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+.sr .t { flex: 1; min-width: 0; }
+.sr .t b { display: block; font-size: 13px; font-weight: 700; }
+.sr .t span { font-size: 12px; color: var(--muted); }
+.lgs { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; flex: none; }
+.lgs svg, .lgs img { width: 16px; height: 16px; }
+.lgs svg.i { stroke: var(--muted); }
+.tg { width: 34px; height: 20px; border-radius: 10px; background: #ffffff1c; position: relative; flex: none; border: 0; padding: 0; }
+.tg::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #9a9aa8; }
+.tg.on { background: var(--text); }
+.tg.on::after { left: 17px; background: var(--win); }
+.ar { display: flex; align-items: center; gap: 10px; margin: 0 -8px 0 40px; padding: 4px 8px; border-radius: 8px; color: var(--muted); font-weight: 600; cursor: pointer; }
+.ar:hover { background: var(--raise); color: var(--text); }
+.ar.off { opacity: 0.5; }
+.ar .av { width: 22px; height: 22px; font-size: 9px; }
+.ar .al { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar .chev { width: 14px; height: 14px; color: var(--dim); }
+.sheet { width: 480px; }
+.sheet .sh { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.sheet .sh h3 { margin: 0; }
+.sheet .av.big { width: 44px; height: 44px; font-size: 14px; }
+.sheet .av .svc { border-color: var(--card); }
+.sheet .seg { display: flex; padding: 3px; gap: 2px; margin-bottom: 14px; }
+.sheet .seg span { padding: 4px 8px; border-radius: 6px; flex: auto; text-align: center; white-space: nowrap; }
+.sheet .sr.mute { padding: 4px 0; }
+.sheet .btn { cursor: pointer; }
+.sheet .rm { margin-right: auto; }
+.sheet .confirm .btns { margin-top: 12px; }

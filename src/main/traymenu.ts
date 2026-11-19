@@ -9,12 +9,12 @@ export interface TrayMenuItem {
   click?: (item: { checked: boolean }) => void
 }
 
-export function trayTemplate(o: { dnd: boolean; onLock: () => void; onShow: () => void; onDnd: (on: boolean) => void; onQuit: () => void }): TrayMenuItem[] {
+export function trayTemplate(o: { dnd: boolean; onLock: () => void; onShow: () => void; onSettings: () => void; onDnd: (on: boolean) => void; onQuit: () => void }): TrayMenuItem[] {
   return [
     { label: 'Show GuiseDesk', click: o.onShow },
     { label: 'Lock now', accelerator: 'Ctrl+L', registerAccelerator: false, click: o.onLock },
     { label: 'Do Not Disturb', type: 'checkbox', checked: o.dnd, click: (m) => o.onDnd(m.checked) },
-    { label: 'Settings', click: o.onShow },
+    { label: 'Settings', click: o.onSettings },
     { type: 'separator' },
     { label: 'Quit', click: o.onQuit }
   ]

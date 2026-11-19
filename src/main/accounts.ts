@@ -107,3 +107,40 @@ export function loadIdleMinutes(dir: string): 5 | 10 | 30 | 'manual' {
     return 10
   }
 }
+
+function updateSettings(dir: string, patch: Record<string, unknown>): void {
+  let settings: Record<string, unknown> = {}
+  try {
+    settings = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))
+  } catch {
+    /* first write */
+  }
+  writeAtomic(join(dir, 'settings.json'), JSON.stringify({ ...settings, ...patch }, null, 2))
+}
+
+/** Services switched off in Settings (D6), in settings.json key disabledServices. Accounts and sessions stay. */
+export function loadDisabled(dir: string): string[] {
+  try {
+    const v = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).disabledServices
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function setServiceEnabled(dir: string, serviceId: string, enabled: boolean): string[] {
+  const off = loadDisabled(dir).filter((s) => s !== serviceId)
+  if (!enabled) off.push(serviceId)
+  updateSettings(dir, { disabledServices: off })
+  return off
+}
+
+export const IDLE_POLICIES = ['default', 'always', '10', '30', '60']
+
+/** Sets one account's hibernation override (D7); throws on a value outside IDLE_POLICIES. */
+export function setIdlePolicy(dir: string, id: string, policy: string): Account[] {
+  if (!IDLE_POLICIES.includes(policy)) throw new Error('Unknown sleep setting')
+  const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, idlePolicy: policy } : a))
+  saveAccounts(dir, accounts)
+  return accounts
+}

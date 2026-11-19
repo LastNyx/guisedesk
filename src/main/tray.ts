@@ -5,10 +5,10 @@ import { trayLook, trayTemplate } from './traymenu'
 
 const icon = (name: string) => nativeImage.createFromPath(join(__dirname, '../../resources', name))
 
-export function createTray(onShow: () => void, onLock: () => void, dnd: boolean, onDnd: (on: boolean) => void): { setUnread(total: number, locked: boolean): void } {
+export function createTray(onShow: () => void, onLock: () => void, onSettings: () => void, dnd: boolean, onDnd: (on: boolean) => void): { setUnread(total: number, locked: boolean): void } {
   const tray = new Tray(icon('tray.png'))
   tray.setToolTip('GuiseDesk')
-  tray.setContextMenu(Menu.buildFromTemplate(trayTemplate({ dnd, onLock, onShow, onDnd, onQuit: () => app.quit() })))
+  tray.setContextMenu(Menu.buildFromTemplate(trayTemplate({ dnd, onLock, onShow, onSettings, onDnd, onQuit: () => app.quit() })))
   tray.on('click', onShow)
   return {
     setUnread(total, locked) {

@@ -61,22 +61,23 @@ describe('AddAccount dialog', () => {
 
 describe('App add flow', () => {
   const acc = (id: string, label: string, order: number) => ({ id, serviceId: 'whatsapp', label, colour: '#6d5bd0', order })
-  let bridge: { lockState: unknown; onLock: unknown; state: ReturnType<typeof vi.fn>; sleep: unknown; onSleep: unknown; select: ReturnType<typeof vi.fn>; dialog: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; unread: ReturnType<typeof vi.fn>; onUnread: ReturnType<typeof vi.fn>; onSelected: ReturnType<typeof vi.fn> }
+  let bridge: { lockState: unknown; onLock: unknown; state: ReturnType<typeof vi.fn>; sleep: unknown; onSleep: unknown; select: ReturnType<typeof vi.fn>; dialog: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; unread: ReturnType<typeof vi.fn>; onUnread: ReturnType<typeof vi.fn>; onSelected: ReturnType<typeof vi.fn>; onOpenSettings: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
     bridge = {
       lockState: async () => ({ state: 'unlocked' }),
       onLock: vi.fn(),
-      state: vi.fn(async () => ({ accounts: [acc('a1', 'Personal', 0)], selectedId: 'a1' })),
+      state: vi.fn(async () => ({ accounts: [acc('a1', 'Personal', 0)], selectedId: 'a1', disabledServices: [] })),
       unread: vi.fn(async () => ({})),
       onUnread: vi.fn(),
       onSelected: vi.fn(),
+      onOpenSettings: vi.fn(),
       sleep: async () => ({}),
       onSleep: vi.fn(),
       select: vi.fn(),
       dialog: vi.fn(),
       add: vi.fn(async () => ({
-        accounts: [acc('a1', 'Personal', 0), acc('a2', 'Business', 1)], selectedId: 'a2'
+        accounts: [acc('a1', 'Personal', 0), acc('a2', 'Business', 1)], selectedId: 'a2', disabledServices: []
       }))
     }
     ;(window as unknown as { guisedesk: unknown }).guisedesk = bridge

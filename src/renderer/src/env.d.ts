@@ -11,7 +11,15 @@ interface AccountRow {
   colour: string
   order: number
   muted?: boolean
+  idlePolicy?: string
   custom?: { name: string; url: string; icon?: string }
+}
+
+interface Snapshot {
+  accounts: AccountRow[]
+  selectedId?: string
+  /** Service ids switched off in Settings: their accounts are hidden from the sidebar. */
+  disabledServices: string[]
 }
 
 interface LockInfo {
@@ -32,7 +40,7 @@ interface Window {
     lock(): void
     /** Wipes every account and session, after RESET is typed; main re-checks the word. */
     reset(typed: string): Promise<{ ok: true } | { error: string }>
-    state(): Promise<{ accounts: AccountRow[]; selectedId?: string }>
+    state(): Promise<Snapshot>
     unread(): Promise<Record<string, number>>
     onUnread(cb: (counts: Record<string, number>) => void): void
     select(id: string): void
@@ -43,12 +51,22 @@ interface Window {
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */
     dialog(open: boolean): void
     /** Mute or unmute an account (D19). */
-    mute(id: string, muted: boolean): Promise<{ accounts: AccountRow[]; selectedId?: string }>
+    mute(id: string, muted: boolean): Promise<Snapshot>
+    /** Settings was opened from the tray. */
+    onOpenSettings(cb: () => void): void
+    /** Switch a whole service on or off (D6); sessions stay. */
+    setServiceEnabled(serviceId: string, enabled: boolean): Promise<Snapshot>
+    /** Hibernation override for one account (D7): default | always | 10 | 30 | 60. */
+    setPolicy(id: string, policy: string): Promise<Snapshot>
+    /** Clears the account's saved login; the account stays. */
+    logout(id: string): Promise<Snapshot>
+    /** Deletes the account and its saved data. */
+    remove(id: string): Promise<Snapshot>
     add(input: {
       serviceId: string
       label: string
       colour: string
       custom?: { name: string; url: string }
-    }): Promise<{ accounts: AccountRow[]; selectedId?: string } | { error: string }>
+    }): Promise<Snapshot | { error: string }>
   }
 }

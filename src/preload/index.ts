@@ -53,6 +53,11 @@ if (service) {
   select: (id: string) => ipcRenderer.send('accounts:select', id),
   dialog: (open: boolean) => ipcRenderer.send('ui:dialog', open),
   mute: (id: string, muted: boolean) => ipcRenderer.invoke('accounts:mute', id, muted),
+  onOpenSettings: (cb: () => void) => ipcRenderer.on('settings:open', () => cb()),
+  setServiceEnabled: (serviceId: string, enabled: boolean) => ipcRenderer.invoke('services:set', serviceId, enabled),
+  setPolicy: (id: string, policy: string) => ipcRenderer.invoke('accounts:policy', id, policy),
+  logout: (id: string) => ipcRenderer.invoke('accounts:logout', id),
+  remove: (id: string) => ipcRenderer.invoke('accounts:remove', id),
   add: (input: unknown) => ipcRenderer.invoke('accounts:add', input),
   onSelected: (cb: (id: string) => void) => ipcRenderer.on('accounts:selected', (_e, id) => cb(id))
 })

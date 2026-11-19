@@ -151,10 +151,11 @@ describe('App while locked', () => {
   const base = (state: string) => ({
     lockState: vi.fn(async () => ({ state, kind: 'pin', pinLength: 6 })),
     onLock: vi.fn(),
-    state: vi.fn(async () => ({ accounts: [secret], selectedId: 'a1' })),
+    state: vi.fn(async () => ({ accounts: [secret], selectedId: 'a1', disabledServices: [] })),
     unread: vi.fn(async () => ({ a1: 7 })),
     onUnread: vi.fn(),
     onSelected: vi.fn(),
+    onOpenSettings: vi.fn(),
     sleep: vi.fn(async () => ({})),
     onSleep: vi.fn(),
     select: vi.fn(),
@@ -206,7 +207,8 @@ describe('Reset screen', () => {
       onLock: vi.fn(),
       onSleep: vi.fn(),
       onUnread: vi.fn(),
-      onSelected: vi.fn()
+      onSelected: vi.fn(),
+      onOpenSettings: vi.fn()
     })
     const w = mount(App)
     await flushPromises()
