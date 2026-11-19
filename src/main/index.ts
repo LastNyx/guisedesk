@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, setMuted, setServiceEnabled, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, setMuted, setServiceEnabled, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -21,6 +21,7 @@ import { wireTriggers } from './triggers'
 import { resetData, RESET_WORD } from './reset'
 import { isAutostart, setAutostart, startsHidden } from './autostart'
 import { applyIdle } from './prefs'
+import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
 // so sessions and partitions still land in the chosen dir. The name is what notifications and the tray show.
@@ -30,12 +31,15 @@ const dir = dataDir(process.env, homedir())
 mkdirSync(dir, { recursive: true })
 app.setPath('userData', dir)
 
-// Content panel inside the renderer layout (D26 compact): sidebar 232px, main padding 12/16/16/16.
-const SIDE = 232
+// Content panel inside the renderer layout (D26 compact): numbers in layout.ts, shared with Sidebar.vue.
+// Sidebar rail state (D24), loaded from settings in createWindow.
+let sidebarCollapsed = false
 function panelBounds(win: BrowserWindow) {
   const [w, h] = win.getContentSize()
-  return { x: SIDE + 16, y: 12, width: Math.max(0, w - SIDE - 32), height: Math.max(0, h - 28) }
+  return layoutBounds(w, h, sidebarCollapsed)
 }
+// The account page's corners match the rounded inset panel (10px in tokens.css).
+const VIEW_RADIUS = 10
 
 // App lock (D9): main is the source of truth. Locked or in setup, no account data goes to the renderer and no service view
 // is on the window. GUISEDESK_DEV_UNLOCKED=1 (dev only, honoured only with GUISEDESK_DATA plus GUISEDESK_DEV or GUISEDESK_SHOT, never for ~/.config/GuiseDesk) skips the lock for screenshot runs.
@@ -69,6 +73,7 @@ const sleepState: Record<string, { minutes: number; waking: boolean }> = {}
 let attachedId: string | undefined
 // Input anywhere in the app (window or a service view) restarts the idle period; set once the triggers are wired.
 let touchIdle: () => void = () => {}
+let toggleSidebar: () => void = () => {}
 const live = new Set<Notification>() // keep references so click handlers survive GC
 
 /** One request to the site for its favicon (Custom URL accounts only, once per host). */
@@ -111,6 +116,12 @@ function hookLinks(v: WebContentsView, a: Account): void {
   wc.on('before-input-event', (e, input) => {
     hib.touch(a.id)
     touchIdle()
+    // Ctrl+B toggles the sidebar, but never while locked (the view is off the window then anyway).
+    if (isSidebarShortcut(input) && isUnlocked()) {
+      e.preventDefault()
+      toggleSidebar()
+      return
+    }
     // Ctrl+L locks even while focus is inside a service page (the page never sees the key).
     if (isLockShortcut(input)) {
       e.preventDefault()
@@ -142,6 +153,7 @@ function viewFor(a: Account): WebContentsView {
     ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permissionAllowed(permission)))
     ses.setPermissionCheckHandler((_wc, permission) => permissionAllowed(permission))
     const preset = presetFor(a.serviceId)
+    v.setBorderRadius(VIEW_RADIUS)
     v.webContents.setUserAgent(preset?.userAgent ?? CHROME_UA)
     hookLinks(v, a)
     v.webContents.loadURL(preset?.startUrl ?? a.custom?.url ?? 'about:blank')
@@ -277,6 +289,16 @@ function createWindow(): BrowserWindow {
   })
 
   disabled = new Set(loadDisabled(dir))
+  sidebarCollapsed = loadSidebarCollapsed(dir)
+  // The rail changes the panel width: tell the renderer and resize the attached view at once.
+  const setSidebar = (c: boolean) => {
+    if (c === sidebarCollapsed) return
+    sidebarCollapsed = c
+    saveSidebarCollapsed(dir, c)
+    attached?.setBounds(panelBounds(win))
+    if (!win.isDestroyed()) win.webContents.send('sidebar:changed', c)
+  }
+  toggleSidebar = () => setSidebar(!sidebarCollapsed)
   let accounts = orderedAccounts(loadAccounts(dir))
   const enabled = () => accounts.filter((a) => !disabled.has(a.serviceId))
   let selectedId = loadSelected(dir)
@@ -287,7 +309,8 @@ function createWindow(): BrowserWindow {
       a.custom ? { ...a, custom: { ...a.custom, icon: readIcon(dir, a.custom.icon) } } : a
     ),
     selectedId,
-    disabledServices: [...disabled]
+    disabledServices: [...disabled],
+    sidebarCollapsed
   })
   const fromApp = (e: { sender: { id: number } }) => e.sender.id === win.webContents.id
   ipcMain.removeHandler('lock:state')
@@ -362,6 +385,11 @@ function createWindow(): BrowserWindow {
   // Ctrl+L inside the app UI (a focused service view is handled in hookLinks).
   win.webContents.on('before-input-event', (e, input) => {
     touchIdle()
+    if (isSidebarShortcut(input) && isUnlocked()) {
+      e.preventDefault()
+      toggleSidebar()
+      return
+    }
     if (!isLockShortcut(input)) return
     e.preventDefault()
     lock.lock()
@@ -479,6 +507,7 @@ function createWindow(): BrowserWindow {
     pushSleep()
     return snapshot()
   })
+  gipc.on('sidebar:set', (e: { sender: { id: number } }, c: unknown) => fromApp(e) && setSidebar(!!c))
   gipc.on('ui:dialog', (_e: unknown, open: boolean) => setDialog(win, !!open))
   gipc.handle('accounts:mute', (_e: unknown, id: string, muted: boolean) => {
     if (!accounts.some((a) => a.id === id)) return snapshot()
@@ -543,10 +572,14 @@ function createWindow(): BrowserWindow {
             const b = attached.getBounds()
             const sw = image.getSize()
             const k = sw.width / win.getContentSize()[0]
-            const vs = v.getSize()
+            // HiDPI: the window capture is k times the DIP size; bring the view capture to the same scale before pasting.
+            const tw = Math.round(b.width * k)
+            const th = Math.round(b.height * k)
+            const scaled = v.getSize().width === tw ? v : v.resize({ width: tw, height: th, quality: 'best' })
+            const vs = scaled.getSize()
             const c = overlay(
               { ...sw, data: image.toBitmap() },
-              { ...vs, data: v.toBitmap() },
+              { ...vs, data: scaled.toBitmap() },
               Math.round(b.x * k),
               Math.round(b.y * k)
             )

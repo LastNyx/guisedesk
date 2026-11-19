@@ -28,8 +28,10 @@ body {
 .shell { display: flex; height: 100%; background: var(--win); }
 
 .side {
-  width: 232px;
+  /* width comes from Sidebar.vue (src/main/layout.ts: 232 full, 64 rail), the same numbers main uses for the view bounds */
   flex: none;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--side);
   padding: 16px 12px 12px;
   display: flex;
@@ -39,6 +41,18 @@ body {
 
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 16px; margin: 0 6px 14px; }
 .brand .bn { flex: 1; }
+.grow { flex: 1; }
+.foot { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 0 8px; }
+.side.mini { padding: 14px 8px 12px; align-items: center; }
+.side.mini .brand { flex-direction: column; gap: 10px; margin: 0 0 8px; }
+.side.mini .brand .ib + .ib { margin-left: 0; }
+.side.mini .brand .gear { order: 1; }
+.side.mini .sec { width: 26px; height: 1px; background: #ffffff1a; margin: 10px auto; padding: 0; }
+.side.mini .row { padding: 5px; }
+.side.mini .row + .row { margin-top: 6px; }
+.side.mini .count { position: absolute; right: -3px; top: -3px; min-width: 18px; height: 16px; padding: 0 4px; font-size: 10px; box-shadow: 0 0 0 2px var(--side); }
+.side.mini .zz { display: none; }
+.side.mini .foot { padding: 0; justify-content: center; }
 
 .sec {
   font-size: 10px;

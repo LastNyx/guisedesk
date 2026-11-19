@@ -20,6 +20,8 @@ interface Snapshot {
   selectedId?: string
   /** Service ids switched off in Settings: their accounts are hidden from the sidebar. */
   disabledServices: string[]
+  /** Sidebar shown as the 64px rail (D24). */
+  sidebarCollapsed?: boolean
 }
 
 interface LockInfo {
@@ -57,6 +59,10 @@ interface Window {
     onSleep(cb: (s: Record<string, { minutes: number; waking: boolean }>) => void): void
     /** Main selected an account (notification click). */
     onSelected(cb: (id: string) => void): void
+    /** Collapse or expand the sidebar; main saves it and resizes the service view. */
+    setSidebar(collapsed: boolean): void
+    /** Main changed the sidebar (Ctrl+B). */
+    onSidebar(cb: (collapsed: boolean) => void): void
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */
     dialog(open: boolean): void
     /** Mute or unmute an account (D19). */

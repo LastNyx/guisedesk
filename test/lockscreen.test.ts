@@ -158,6 +158,7 @@ describe('App while locked', () => {
     onOpenSettings: vi.fn(),
     sleep: vi.fn(async () => ({})),
     onSleep: vi.fn(),
+    onSidebar: vi.fn(),
     select: vi.fn(),
     dialog: vi.fn()
   })
@@ -206,6 +207,7 @@ describe('Reset screen', () => {
       lockState: vi.fn(async () => ({ state: 'locked', kind: 'pin', pinLength: 6 })),
       onLock: vi.fn(),
       onSleep: vi.fn(),
+      onSidebar: vi.fn(),
       onUnread: vi.fn(),
       onSelected: vi.fn(),
       onOpenSettings: vi.fn()

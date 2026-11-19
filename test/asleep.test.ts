@@ -48,6 +48,7 @@ describe('App asleep panel', () => {
       onOpenSettings: () => {},
       sleep: async () => ({ ig1: { minutes: 30, waking: false } }),
       onSleep: (cb: typeof push) => (push = cb),
+      onSidebar: () => {},
       select,
       dialog: () => {}
     }

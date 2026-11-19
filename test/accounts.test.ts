@@ -3,7 +3,7 @@ import * as realFs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { addAccount, loadAccounts, loadDnd, loadSelected, orderedAccounts, saveAccounts, saveDnd, saveSelected, setMuted } from '../src/main/accounts'
+import { addAccount, loadAccounts, loadDnd, loadSelected, loadSidebarCollapsed, orderedAccounts, saveAccounts, saveDnd, saveSelected, saveSidebarCollapsed, setMuted } from '../src/main/accounts'
 import { PRESETS } from '../src/main/presets'
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'gd-acc-'))
@@ -98,6 +98,17 @@ describe('mute and Do Not Disturb persistence', () => {
     expect(again.find((x) => x.id === b.id)?.muted).toBe(false)
     setMuted(dir, a.id, false)
     expect(loadAccounts(dir).find((x) => x.id === a.id)?.muted).toBe(false)
+  })
+  it('the collapsed sidebar is saved in settings and restored, next to the other settings', () => {
+    const dir = tmp()
+    expect(loadSidebarCollapsed(dir)).toBe(false)
+    saveDnd(dir, true)
+    saveSidebarCollapsed(dir, true)
+    expect(loadSidebarCollapsed(dir)).toBe(true)
+    expect(loadDnd(dir)).toBe(true)
+    saveSidebarCollapsed(dir, false)
+    expect(loadSidebarCollapsed(dir)).toBe(false)
+    expect(loadDnd(dir)).toBe(true)
   })
   it('Do Not Disturb is off by default, is stored in settings and keeps the selected account', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gd-dnd-'))

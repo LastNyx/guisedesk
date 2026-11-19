@@ -58,6 +58,8 @@ if (service) {
     ipcRenderer.on('unread:update', (_e, counts) => cb(counts)),
   sleep: () => ipcRenderer.invoke('sleep:get'),
   onSleep: (cb: (s: unknown) => void) => ipcRenderer.on('sleep:update', (_e, s) => cb(s)),
+  setSidebar: (collapsed: boolean) => ipcRenderer.send('sidebar:set', collapsed),
+  onSidebar: (cb: (collapsed: boolean) => void) => ipcRenderer.on('sidebar:changed', (_e, c) => cb(c)),
   select: (id: string) => ipcRenderer.send('accounts:select', id),
   dialog: (open: boolean) => ipcRenderer.send('ui:dialog', open),
   mute: (id: string, muted: boolean) => ipcRenderer.invoke('accounts:mute', id, muted),

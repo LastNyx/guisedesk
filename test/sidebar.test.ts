@@ -91,4 +91,74 @@ describe('Sidebar', () => {
     await c.find('.ctx .mi').trigger('click')
     expect(c.emitted('mute')![1]).toEqual(['dc1', false])
   })
+
+  describe('collapsed rail', () => {
+    const counts = { wa1: 3, dc1: 150 }
+    const c = mount(Sidebar, { props: { accounts, selectedId: 'dc1', counts, asleep: ['x1'], collapsed: true } })
+
+    it('hides names and section labels, shows the name as a tooltip, keeps badges and counts', () => {
+      expect(c.find('.side').classes()).toContain('mini')
+      expect(c.find('.side').attributes('style')).toContain('width: 64px')
+      expect(c.findAll('.name')).toHaveLength(0)
+      expect(c.find('.bn').exists()).toBe(false)
+      expect(c.findAll('.sec').map((s) => s.text())).toEqual(['', ''])
+      const rows = c.findAll('.row')
+      expect(rows[0].attributes('title')).toBe('Personal · WhatsApp')
+      expect(rows[0].find('.svc svg').exists()).toBe(true)
+      expect(rows[0].find('.count').text()).toBe('3')
+      expect(rows[1].find('.count').text()).toBe('99+')
+    })
+
+    it('keeps the brand mark and + at the top, and the panel button toggles', async () => {
+      expect(c.find('.brand svg[viewBox="0 0 32 32"]').exists()).toBe(true)
+      expect(c.find('.brand .add').exists()).toBe(true)
+      expect(c.find('.foot .tgl').attributes('title')).toBe('Expand sidebar (Ctrl+B)')
+      await c.find('.foot .tgl').trigger('click')
+      expect(c.emitted('toggle')).toHaveLength(1)
+    })
+  })
+
+  it('full mode is 232px wide with the brand mark next to the name and a collapse button', () => {
+    expect(w.find('.side').classes()).not.toContain('mini')
+    expect(w.find('.side').attributes('style')).toContain('width: 232px')
+    expect(w.find('.brand .bn').text()).toBe('GuiseDesk')
+    expect(w.find('.brand svg[viewBox="0 0 32 32"]').exists()).toBe(true)
+    expect(w.find('.foot .tgl').attributes('title')).toBe('Collapse sidebar (Ctrl+B)')
+  })
+})
+
+describe('App sidebar state', () => {
+  it('starts collapsed from the saved state, the panel button asks main, and main changes (Ctrl+B) are followed', async () => {
+    const { flushPromises } = await import('@vue/test-utils')
+    const { vi } = await import('vitest')
+    const App = (await import('../src/renderer/src/App.vue')).default
+    let push: (c: boolean) => void = () => {}
+    const setSidebar = vi.fn()
+    ;(window as unknown as { guisedesk: unknown }).guisedesk = {
+      lockState: async () => ({ state: 'unlocked' }),
+      onLock: () => {},
+      state: async () => ({ accounts, selectedId: 'wa1', disabledServices: [], sidebarCollapsed: true }),
+      unread: async () => ({}),
+      onUnread: () => {},
+      onSelected: () => {},
+      onOpenSettings: () => {},
+      sleep: async () => ({}),
+      onSleep: () => {},
+      select: () => {},
+      dialog: () => {},
+      setSidebar,
+      onSidebar: (cb: typeof push) => (push = cb)
+    }
+    const a = mount(App)
+    await flushPromises()
+    expect(a.find('.side').classes()).toContain('mini')
+    await a.find('.foot .tgl').trigger('click')
+    expect(setSidebar).toHaveBeenCalledWith(false)
+    push(false)
+    await flushPromises()
+    expect(a.find('.side').classes()).not.toContain('mini')
+    push(true)
+    await flushPromises()
+    expect(a.find('.side').classes()).toContain('mini')
+  })
 })

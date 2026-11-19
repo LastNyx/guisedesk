@@ -19,6 +19,8 @@ const asleepIds = computed(() => Object.keys(sleep.value).filter((id) => !sleep.
 const sleeping = computed(() => accounts.value.find((a) => a.id === selectedId.value && sleep.value[a.id]))
 // Services switched off in Settings (D6): their accounts stay in `accounts` (and in the store) but leave the sidebar.
 const disabled = ref<string[]>([])
+// Sidebar rail (D24): main owns and saves it (it also sizes the service view); Ctrl+B in main arrives through onSidebar.
+const collapsed = ref(false)
 const shown = computed(() => visibleAccounts(accounts.value, disabled.value))
 // Settings fills the main area; main detaches the service view while it is open (like a dialog). The sheet only exists inside it.
 const settingsOpen = ref(false)
@@ -37,6 +39,7 @@ async function loadAccounts() {
   accounts.value = s.accounts
   selectedId.value = s.selectedId
   disabled.value = s.disabledServices
+  collapsed.value = !!s.sidebarCollapsed
   counts.value = await window.guisedesk.unread()
   sleep.value = await window.guisedesk.sleep()
 }
@@ -65,6 +68,7 @@ async function apply(info: LockInfo) {
 onMounted(async () => {
   window.guisedesk.onLock((info) => void apply(info))
   window.guisedesk.onSleep((s) => (sleep.value = s))
+  window.guisedesk.onSidebar((c) => (collapsed.value = c))
   window.guisedesk.onUnread((c) => (counts.value = { ...c }))
   window.guisedesk.onSelected((id) => {
     selectedId.value = id
@@ -96,6 +100,10 @@ function take(s: Snapshot) {
 
 async function mute(id: string, muted: boolean) {
   take(await window.guisedesk.mute(id, muted))
+}
+
+function toggleSidebar() {
+  window.guisedesk.setSidebar(!collapsed.value)
 }
 
 function openSettings() {
@@ -160,7 +168,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
   <ResetScreen v-else-if="resetting" @cancel="resetting = false" />
   <LockScreen v-else-if="lockInfo.state === 'locked'" :kind="lockInfo.kind ?? 'pin'" :pin-length="lockInfo.pinLength" :wait-until="lockInfo.waitUntil" @forgot="resetting = true" />
   <div v-else class="shell">
-    <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" @select="select" @add="openAdd" @mute="mute" @settings="openSettings" @account="openSheet" />
+    <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @settings="openSettings" @account="openSheet" />
     <main class="main">
       <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" />
       <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />

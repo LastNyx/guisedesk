@@ -98,6 +98,25 @@ export function saveDnd(dir: string, dnd: boolean): void {
   writeAtomic(join(dir, 'settings.json'), JSON.stringify({ ...settings, dnd }, null, 2))
 }
 
+/** Collapsed sidebar rail (D24) lives in settings.json key sidebarCollapsed; expanded when missing. */
+export function loadSidebarCollapsed(dir: string): boolean {
+  try {
+    return JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).sidebarCollapsed === true
+  } catch {
+    return false
+  }
+}
+
+export function saveSidebarCollapsed(dir: string, sidebarCollapsed: boolean): void {
+  let settings: Record<string, unknown> = {}
+  try {
+    settings = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))
+  } catch {
+    /* first write */
+  }
+  writeAtomic(join(dir, 'settings.json'), JSON.stringify({ ...settings, sidebarCollapsed }, null, 2))
+}
+
 /** Idle lock minutes (D15, D17) in settings.json key idleLock: 5, 10, 30 or 'manual'; 10 when missing or invalid. */
 export function loadIdleMinutes(dir: string): 5 | 10 | 30 | 'manual' {
   try {
