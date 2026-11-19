@@ -21,6 +21,17 @@ const SHIM = `(() => {
   }
 })()`
 
+// Mouse and wheel input counts as activity for the idle lock (keys are seen by main's before-input-event).
+// Runs in the app window and in service views; throttled to one message a second.
+let lastTouch = 0
+const touch = () => {
+  const t = Date.now()
+  if (t - lastTouch < 1000) return
+  lastTouch = t
+  ipcRenderer.send('idle:touch')
+}
+for (const ev of ['mousemove', 'mousedown', 'wheel', 'touchstart']) window.addEventListener(ev, touch, { capture: true, passive: true })
+
 if (service) {
   contextBridge.exposeInMainWorld('__gdNotify', (title: string, body: string, icon: string) =>
     ipcRenderer.send('notify:show', { title, body, icon })
@@ -32,6 +43,7 @@ if (service) {
   unlock: (entry: string) => ipcRenderer.invoke('lock:unlock', entry),
   setupLock: (kind: string, secret: string, repeat: string) => ipcRenderer.invoke('lock:setup', kind, secret, repeat),
   lock: () => ipcRenderer.send('lock:lock'),
+  reset: (typed: string) => ipcRenderer.invoke('lock:reset', typed),
   state: () => ipcRenderer.invoke('accounts:state'),
   unread: () => ipcRenderer.invoke('unread:get'),
   onUnread: (cb: (counts: Record<string, number>) => void) =>

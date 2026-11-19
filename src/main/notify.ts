@@ -24,7 +24,7 @@ export type NotifyDecision =
 export function decideNotification(event: NotifyEvent, state: NotifyState): NotifyDecision {
   if (state.muted || state.dnd || state.asleep) return { action: 'drop' }
   if (state.locked)
-    return { action: 'generic', accountId: event.accountId, title: 'New message (GuiseDesk)', body: '', subtitle: '' }
+    return { action: 'generic', accountId: event.accountId, title: 'GuiseDesk', body: 'New message', subtitle: '' }
   return {
     action: 'full',
     accountId: event.accountId,

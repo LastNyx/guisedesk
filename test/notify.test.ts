@@ -33,4 +33,14 @@ describe('decideNotification', () => {
     expect(decideNotification(event, { dnd: true, muted: false }).action).toBe('drop')
     expect(decideNotification(event, { dnd: false }).action).toBe('full')
   })
+  it('while locked: GuiseDesk / New message, no sender, body, account or icon', () => {
+    const d = decideNotification(event, { locked: true })
+    expect(d).toEqual({ action: 'generic', accountId: 'a1', title: 'GuiseDesk', body: 'New message', subtitle: '' })
+    const text = JSON.stringify(d)
+    for (const secret of ['Alice', 'Lunch', 'WhatsApp', 'Personal', 'example.com']) expect(text).not.toContain(secret)
+  })
+  it('locked still drops a muted account and DND', () => {
+    expect(decideNotification(event, { locked: true, muted: true })).toEqual({ action: 'drop' })
+    expect(decideNotification(event, { locked: true, dnd: true })).toEqual({ action: 'drop' })
+  })
 })

@@ -14,6 +14,9 @@ export interface LockRecord extends ScryptParams {
   pinLength: number | null
   salt: string
   hash: string
+  /** Wrong tries so far and the wait-until time, kept so a restart does not skip the wait. Absent = none. */
+  fails?: number
+  waitUntil?: number
 }
 
 export const DEFAULT_PARAMS: ScryptParams = { N: 32768, r: 8, p: 1, keylen: 64 }
@@ -78,10 +81,28 @@ export function createLock(opts: { dir: string; now?: () => number; params?: Scr
   let rec = readRecord(path)
   // App start is always locked, or in setup when there is no (usable) lock.json.
   let state: LockState = opts.startUnlocked ? 'unlocked' : rec ? 'locked' : 'setup'
-  let fails = 0
-  let waitUntil = 0
+  // Wrong-try counter and wait live in lock.json too, so quitting and restarting does not skip the wait.
+  let fails = rec && Number.isInteger(rec.fails) ? Math.min(Math.max(rec.fails!, 0), MAX_TRIES - 1) : 0
+  // A wait further away than WAIT_MS is a clock change or a hand edit: cap it.
+  let waitUntil = rec && Number.isFinite(rec.waitUntil) ? Math.min(rec.waitUntil!, now() + WAIT_MS) : 0
   let queue: Promise<unknown> = Promise.resolve()
   const listeners: ((s: LockState) => void)[] = []
+  /** Atomic and private: temp file at 0600, then rename over lock.json. */
+  const write = (next: LockRecord) => {
+    const tmp = `${path}.tmp`
+    writeFileSync(tmp, JSON.stringify(next), { mode: 0o600 })
+    chmodSync(tmp, 0o600)
+    renameSync(tmp, path)
+  }
+  const persist = () => {
+    if (!rec) return
+    const { fails: _f, waitUntil: _w, ...base } = rec
+    try {
+      write(fails || waitUntil ? { ...base, fails, waitUntil } : base)
+    } catch {
+      /* the counter still holds in memory */
+    }
+  }
   const set = (s: LockState) => {
     if (s === state) return
     state = s
@@ -106,12 +127,10 @@ export function createLock(opts: { dir: string; now?: () => number; params?: Scr
       const v = validateNewSecret(kind, secret, repeat)
       if (!v.ok) return { error: v.error }
       const next = await hashSecret(secret, params, kind)
-      // Atomic and private: temp file at 0600, then rename over lock.json.
-      const tmp = `${path}.tmp`
-      writeFileSync(tmp, JSON.stringify(next), { mode: 0o600 })
-      chmodSync(tmp, 0o600)
-      renameSync(tmp, path)
+      write(next)
       rec = next
+      fails = 0
+      waitUntil = 0
       set('unlocked')
       return { ok: true }
     },
@@ -124,6 +143,13 @@ export function createLock(opts: { dir: string; now?: () => number; params?: Scr
     },
     lock(): void {
       if (state === 'unlocked' && rec) set('locked')
+    },
+    /** After reset removed lock.json: forget the record and go back to setup. */
+    reset(): void {
+      rec = undefined
+      fails = 0
+      waitUntil = 0
+      set('setup')
     }
   }
 
@@ -132,15 +158,21 @@ export function createLock(opts: { dir: string; now?: () => number; params?: Scr
     if (state !== 'locked' || !rec) return { result: 'wrong' }
     if (now() < waitUntil) return { result: 'wait', until: waitUntil }
     if (await verifySecret(String(entry ?? ''), rec)) {
-      fails = 0
+      if (fails || waitUntil) {
+        fails = 0
+        waitUntil = 0
+        persist()
+      }
       set('unlocked')
       return { result: 'ok' }
     }
     if (++fails >= MAX_TRIES) {
       fails = 0
       waitUntil = now() + WAIT_MS
+      persist()
       return { result: 'wait', until: waitUntil }
     }
+    persist()
     return { result: 'wrong' }
   }
 }

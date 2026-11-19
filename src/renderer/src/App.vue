@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import AddAccount from './AddAccount.vue'
 import AsleepPanel from './AsleepPanel.vue'
 import LockScreen from './LockScreen.vue'
+import ResetScreen from './ResetScreen.vue'
 import SetupScreen from './SetupScreen.vue'
 import Sidebar from './Sidebar.vue'
 
@@ -18,6 +19,8 @@ const addError = ref('')
 // Main owns the lock. The renderer asks for account data only while main says 'unlocked', and drops all of it on lock.
 const lockInfo = ref<LockInfo>({ state: 'locked' })
 const ready = ref(false)
+// Forgot on the lock screen leads to the reset confirm screen.
+const resetting = ref(false)
 
 async function loadAccounts() {
   const s = await window.guisedesk.state()
@@ -38,6 +41,7 @@ function wipe() {
 
 async function apply(info: LockInfo) {
   lockInfo.value = info
+  if (info.state !== 'locked') resetting.value = false
   if (info.state === 'unlocked') await loadAccounts()
   else wipe()
   ready.value = true
@@ -51,6 +55,7 @@ onMounted(async () => {
   await apply(await window.guisedesk.lockState())
   // Dev-only: the screenshot hook opens the dialog via ?dialog=add.
   if (lockInfo.value.state === 'unlocked' && new URLSearchParams(location.search).get('dialog') === 'add') openAdd()
+  if (lockInfo.value.state === 'locked' && new URLSearchParams(location.search).get('dialog') === 'reset') resetting.value = true
 })
 
 function select(id: string) {
@@ -87,7 +92,8 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
 <template>
   <template v-if="!ready"></template>
   <SetupScreen v-else-if="lockInfo.state === 'setup'" />
-  <LockScreen v-else-if="lockInfo.state === 'locked'" :kind="lockInfo.kind ?? 'pin'" :pin-length="lockInfo.pinLength" :wait-until="lockInfo.waitUntil" />
+  <ResetScreen v-else-if="lockInfo.state === 'locked' && resetting" @cancel="resetting = false" />
+  <LockScreen v-else-if="lockInfo.state === 'locked'" :kind="lockInfo.kind ?? 'pin'" :pin-length="lockInfo.pinLength" :wait-until="lockInfo.waitUntil" @forgot="resetting = true" />
   <div v-else class="shell">
     <Sidebar :accounts="accounts" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" @select="select" @add="openAdd" @mute="mute" />
     <main class="main">

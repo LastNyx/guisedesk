@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../src/renderer/src/App.vue'
 import LockScreen from '../src/renderer/src/LockScreen.vue'
+import ResetScreen from '../src/renderer/src/ResetScreen.vue'
 import SetupScreen from '../src/renderer/src/SetupScreen.vue'
 
 type Bridge = Record<string, ReturnType<typeof vi.fn>>
@@ -195,5 +196,53 @@ describe('App while locked', () => {
     await flushPromises()
     expect(b.state).toHaveBeenCalled()
     expect(w.html()).toContain('Secret Shop')
+  })
+})
+
+describe('Reset screen', () => {
+  it('Forgot on the lock screen opens the confirm screen, Cancel returns', async () => {
+    install({
+      lockState: vi.fn(async () => ({ state: 'locked', kind: 'pin', pinLength: 6 })),
+      onLock: vi.fn(),
+      onSleep: vi.fn(),
+      onUnread: vi.fn(),
+      onSelected: vi.fn()
+    })
+    const w = mount(App)
+    await flushPromises()
+    await pad(w, 'Forgot').trigger('click')
+    expect(w.find('.reset').exists()).toBe(true)
+    expect(w.find('.pad').exists()).toBe(false)
+    await w.find('.reset .btn:not(.dng)').trigger('click')
+    expect(w.find('.reset').exists()).toBe(false)
+    expect(w.find('.pad').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('explains what is removed, and Reset stays disabled until RESET is typed exactly', async () => {
+    const b = install({ reset: vi.fn(async () => ({ ok: true })) })
+    const w = mount(ResetScreen)
+    expect(w.text()).toContain('every account and session')
+    expect(w.text()).toContain('RESET')
+    const btn = w.find('.btn.dng')
+    expect((btn.element as HTMLButtonElement).disabled).toBe(true)
+    await w.find('input').setValue('reset')
+    expect((btn.element as HTMLButtonElement).disabled).toBe(true)
+    await btn.trigger('click')
+    expect(b.reset).not.toHaveBeenCalled()
+    await w.find('input').setValue('RESET')
+    expect((btn.element as HTMLButtonElement).disabled).toBe(false)
+    await btn.trigger('click')
+    await flushPromises()
+    expect(b.reset).toHaveBeenCalledExactlyOnceWith('RESET')
+  })
+
+  it('shows an error from main', async () => {
+    install({ reset: vi.fn(async () => ({ error: 'Refused' })) })
+    const w = mount(ResetScreen)
+    await w.find('input').setValue('RESET')
+    await w.find('.btn.dng').trigger('click')
+    await flushPromises()
+    expect(w.find('.err').text()).toBe('Refused')
   })
 })

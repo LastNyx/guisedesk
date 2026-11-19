@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, Notification, nativeImage, shell, WebContentsView } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { dataDir } from './paths'
-import { addAccount, loadAccounts, loadDnd, loadSelected, orderedAccounts, saveDnd, saveSelected, setMuted, type Account } from './accounts'
+import { addAccount, loadAccounts, loadDnd, loadIdleMinutes, loadSelected, orderedAccounts, saveDnd, saveSelected, setMuted, type Account } from './accounts'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
 import { validateNewAccount } from './validate'
@@ -16,6 +16,8 @@ import { permissionAllowed } from './permissions'
 import { createHibernator, limitMinutes } from './hibernate'
 import { createLock, isLockShortcut } from './lock'
 import { createGuardedIpc } from './guard'
+import { wireTriggers } from './triggers'
+import { resetData, RESET_WORD } from './reset'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
 // so sessions and partitions still land in the chosen dir. The name is what notifications and the tray show.
@@ -56,6 +58,8 @@ const owner = new Map<number, Account>()
 const hib = createHibernator(Date.now)
 const sleepState: Record<string, { minutes: number; waking: boolean }> = {}
 let attachedId: string | undefined
+// Input anywhere in the app (window or a service view) restarts the idle period; set once the triggers are wired.
+let touchIdle: () => void = () => {}
 const live = new Set<Notification>() // keep references so click handlers survive GC
 
 /** One request to the site for its favicon (Custom URL accounts only, once per host). */
@@ -97,6 +101,7 @@ function hookLinks(v: WebContentsView, a: Account): void {
   })
   wc.on('before-input-event', (e, input) => {
     hib.touch(a.id)
+    touchIdle()
     // Ctrl+L locks even while focus is inside a service page (the page never sees the key).
     if (isLockShortcut(input)) {
       e.preventDefault()
@@ -146,7 +151,7 @@ function notify(win: BrowserWindow, a: Account, p: { title?: string; body?: stri
       body: String(p.body ?? '').slice(0, 1000),
       icon: p.icon
     },
-    { muted: a.muted, dnd, asleep: hib.isAsleep(a.id) }
+    { muted: a.muted, dnd, asleep: hib.isAsleep(a.id), locked: !isUnlocked() }
   )
   if (d.action === 'drop' || !Notification.isSupported()) return
   // Linux has no subtitle: the service line goes under the body (frame 7).
@@ -227,8 +232,8 @@ function createWindow(): BrowserWindow {
       contextIsolation: true
     }
   })
-  // Dev-only: GUISEDESK_SHOT_DIALOG=add opens the Add account dialog for the screenshot.
-  const dialogQuery = process.env.GUISEDESK_SHOT && process.env.GUISEDESK_SHOT_DIALOG === 'add' ? 'dialog=add' : ''
+  // Dev-only: GUISEDESK_SHOT_DIALOG=add opens the Add account dialog, =reset the reset confirm screen, for the screenshot.
+  const dialogQuery = process.env.GUISEDESK_SHOT && ['add', 'reset'].includes(process.env.GUISEDESK_SHOT_DIALOG ?? '') ? `dialog=${process.env.GUISEDESK_SHOT_DIALOG}` : ''
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL + (dialogQuery && `?${dialogQuery}`))
   else win.loadFile(join(__dirname, '../renderer/index.html'), { search: dialogQuery })
 
@@ -237,7 +242,7 @@ function createWindow(): BrowserWindow {
     win.focus()
   }
   dnd = loadDnd(dir)
-  const tray = createTray(showWindow, dnd, (on) => {
+  const tray = createTray(showWindow, () => lock.lock(), dnd, (on) => {
     dnd = on
     saveDnd(dir, on)
   })
@@ -267,8 +272,44 @@ function createWindow(): BrowserWindow {
   ipcMain.handle('lock:unlock', (e, entry) => (fromApp(e) ? lock.unlock(entry) : { result: 'wrong' }))
   ipcMain.removeAllListeners('lock:lock')
   ipcMain.on('lock:lock', (e) => fromApp(e) && lock.lock())
+  // Idle (D15): the app window and service views report mouse input through the preload; keys come from before-input-event.
+  // The setting is read at start (Settings, ticket 12, changes it through setMinutes).
+  const triggers = wireTriggers({ lock, power: powerMonitor, now: Date.now, minutes: loadIdleMinutes(dir) })
+  touchIdle = triggers.touch
+  setInterval(triggers.check, 10_000).unref()
+  ipcMain.removeAllListeners('idle:touch')
+  ipcMain.on('idle:touch', (e) => (fromApp(e) || owner.has(e.sender.id)) && triggers.touch())
+  // Reset (D14): after RESET is typed, drop every view, wipe the partitions' storage, delete the files, back to setup.
+  ipcMain.removeHandler('lock:reset')
+  ipcMain.handle('lock:reset', async (e, typed) => {
+    if (!fromApp(e) || lock.state() === 'setup') return { error: 'Refused' }
+    if (typed !== RESET_WORD) return { error: `Type ${RESET_WORD} to confirm` }
+    const ids = new Set([...loadAccounts(dir).map((a) => a.id), ...views.keys()])
+    if (attached) detach(win, attached)
+    attached = undefined
+    attachedId = undefined
+    for (const v of views.values()) {
+      owner.delete(v.webContents.id)
+      v.webContents.close()
+    }
+    views.clear()
+    for (const id of ids) {
+      const ses = session.fromPartition(`persist:${id}`)
+      await ses.clearStorageData().catch(() => {})
+      await ses.clearCache().catch(() => {})
+    }
+    const r = resetData(dir, typed)
+    if ('error' in r) return r
+    accounts = []
+    selectedId = undefined
+    for (const k of Object.keys(counts)) delete counts[k]
+    for (const k of Object.keys(sleepState)) delete sleepState[k]
+    lock.reset()
+    return r
+  })
   // Ctrl+L inside the app UI (a focused service view is handled in hookLinks).
   win.webContents.on('before-input-event', (e, input) => {
+    touchIdle()
     if (!isLockShortcut(input)) return
     e.preventDefault()
     lock.lock()
@@ -283,11 +324,12 @@ function createWindow(): BrowserWindow {
       if (attached) detach(win, attached)
       win.webContents.focus()
     }
+    tray.setUnread(totalUnread(counts), !isUnlocked())
     win.webContents.send('lock:changed', lock.info())
   })
   gipc.handle('accounts:state', snapshot)
   const push = () => {
-    tray.setUnread(totalUnread(counts))
+    tray.setUnread(totalUnread(counts), !isUnlocked())
     if (!win.isDestroyed() && isUnlocked()) win.webContents.send('unread:update', counts)
   }
   const pushSleep = () => {

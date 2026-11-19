@@ -30,6 +30,8 @@ interface Window {
     unlock(entry: string): Promise<{ result: 'ok' } | { result: 'wrong' } | { result: 'wait'; until: number }>
     setupLock(kind: 'pin' | 'password', secret: string, repeat: string): Promise<{ ok: true } | { error: string }>
     lock(): void
+    /** Wipes every account and session, after RESET is typed; main re-checks the word. */
+    reset(typed: string): Promise<{ ok: true } | { error: string }>
     state(): Promise<{ accounts: AccountRow[]; selectedId?: string }>
     unread(): Promise<Record<string, number>>
     onUnread(cb: (counts: Record<string, number>) => void): void

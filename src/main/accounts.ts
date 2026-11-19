@@ -97,3 +97,13 @@ export function saveDnd(dir: string, dnd: boolean): void {
   }
   writeAtomic(join(dir, 'settings.json'), JSON.stringify({ ...settings, dnd }, null, 2))
 }
+
+/** Idle lock minutes (D15, D17) in settings.json key idleLock: 5, 10, 30 or 'manual'; 10 when missing or invalid. */
+export function loadIdleMinutes(dir: string): 5 | 10 | 30 | 'manual' {
+  try {
+    const v = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).idleLock
+    return v === 5 || v === 10 || v === 30 || v === 'manual' ? v : 10
+  } catch {
+    return 10
+  }
+}
