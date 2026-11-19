@@ -13,6 +13,7 @@ import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
 import { permissionAllowed } from './permissions'
+import { createHibernator, limitMinutes } from './hibernate'
 
 // Must run before `ready` so sessions and partitions land in the chosen dir.
 const dir = dataDir(process.env, homedir())
@@ -37,6 +38,10 @@ let onCounts: () => void = () => {}
 let quitting = false
 // Which account a service view's webContents belongs to, for notification IPC.
 const owner = new Map<number, Account>()
+// Hibernation (D7): sleep = view destroyed, partition kept. sleepState feeds the sidebar (ZZ) and the asleep panel.
+const hib = createHibernator(Date.now)
+const sleepState: Record<string, { minutes: number; waking: boolean }> = {}
+let attachedId: string | undefined
 const live = new Set<Notification>() // keep references so click handlers survive GC
 
 /** One request to the site for its favicon (Custom URL accounts only, once per host). */
@@ -76,6 +81,7 @@ function hookLinks(v: WebContentsView, a: Account): void {
     if (d.open) void shell.openExternal(d.open)
     if (d.load) wc.loadURL(d.load)
   })
+  wc.on('before-input-event', () => hib.touch(a.id))
   wc.on('page-title-updated', (_e, title) => {
     if (fakeCounts) return
     counts[a.id] = parseUnread(title, presetFor(a.serviceId))
@@ -119,7 +125,7 @@ function notify(win: BrowserWindow, a: Account, p: { title?: string; body?: stri
       body: String(p.body ?? '').slice(0, 1000),
       icon: p.icon
     },
-    { muted: a.muted }
+    { muted: a.muted, asleep: hib.isAsleep(a.id) }
   )
   if (d.action === 'drop' || !Notification.isSupported()) return
   // Linux has no subtitle: the service line goes under the body (frame 7).
@@ -130,12 +136,47 @@ function notify(win: BrowserWindow, a: Account, p: { title?: string; body?: stri
   n.show()
 }
 
-function show(win: BrowserWindow, a: Account): void {
+/** Puts the selected view in the panel. A view rebuilt from sleep is attached only once its page has loaded; the asleep panel covers the gap. */
+function attach(win: BrowserWindow, v: WebContentsView): void {
+  if (win.isDestroyed() || dialogOpen || attached !== v || (attachedId && sleepState[attachedId]?.waking)) return
+  win.contentView.addChildView(v)
+  v.setBounds(panelBounds(win))
+}
+
+function show(win: BrowserWindow, a: Account, push: () => void): void {
   if (attached && !dialogOpen) win.contentView.removeChildView(attached)
-  attached = viewFor(a)
-  if (dialogOpen) return
-  win.contentView.addChildView(attached)
-  attached.setBounds(panelBounds(win))
+  hib.touch(a.id)
+  const wasAsleep = hib.isAsleep(a.id)
+  if (wasAsleep) {
+    hib.wake(a.id)
+    sleepState[a.id] = { ...sleepState[a.id], waking: true }
+  }
+  const v = viewFor(a)
+  attached = v
+  attachedId = a.id
+  if (wasAsleep) {
+    const done = () => {
+      if (!sleepState[a.id]?.waking) return
+      delete sleepState[a.id]
+      push()
+      attach(win, v)
+    }
+    v.webContents.once('did-finish-load', done)
+    v.webContents.once('did-fail-load', done)
+    push()
+    return
+  }
+  attach(win, v)
+}
+
+function sleepAccount(a: Account): void {
+  const v = views.get(a.id)
+  if (v) {
+    owner.delete(v.webContents.id)
+    views.delete(a.id)
+    v.webContents.close()
+  }
+  sleepState[a.id] = { minutes: limitMinutes(a) ?? 0, waking: false }
 }
 
 function setDialog(win: BrowserWindow, open: boolean): void {
@@ -143,10 +184,7 @@ function setDialog(win: BrowserWindow, open: boolean): void {
   dialogOpen = open
   if (!attached) return
   if (open) win.contentView.removeChildView(attached)
-  else {
-    win.contentView.addChildView(attached)
-    attached.setBounds(panelBounds(win))
-  }
+  else attach(win, attached)
 }
 
 function createWindow(): BrowserWindow {
@@ -197,6 +235,22 @@ function createWindow(): BrowserWindow {
     tray.setUnread(totalUnread(counts))
     if (!win.isDestroyed()) win.webContents.send('unread:update', counts)
   }
+  const pushSleep = () => {
+    if (!win.isDestroyed()) win.webContents.send('sleep:update', { ...sleepState })
+  }
+  ipcMain.removeHandler('sleep:get')
+  ipcMain.handle('sleep:get', () => ({ ...sleepState }))
+  // Dev-only: GUISEDESK_FAKE_ASLEEP=<id> starts that account asleep (stays asleep even if selected, so the panel can be shot).
+  const fakeAsleep = process.env.GUISEDESK_FAKE_ASLEEP
+  if (accounts.some((a) => a.id === fakeAsleep)) {
+    hib.sleep(fakeAsleep!)
+    sleepState[fakeAsleep!] = { minutes: 30, waking: false }
+  }
+  // GUISEDESK_SLEEP_TICK_MS (dev-only) shortens the one-minute sweep.
+  setInterval(() => {
+    for (const id of hib.sweep(accounts, selectedId)) sleepAccount(accounts.find((a) => a.id === id)!)
+    pushSleep()
+  }, Number(process.env.GUISEDESK_SLEEP_TICK_MS) || 60_000).unref()
   onCounts = push
   for (const pair of fakeCounts?.split(',') ?? []) {
     const [id, n] = pair.split('=')
@@ -216,7 +270,7 @@ function createWindow(): BrowserWindow {
     accounts = orderedAccounts(loadAccounts(dir))
     selectedId = account.id
     saveSelected(dir, account.id)
-    show(win, account)
+    show(win, account, pushSleep)
     return snapshot()
   })
   ipcMain.removeAllListeners('accounts:select')
@@ -225,14 +279,14 @@ function createWindow(): BrowserWindow {
     if (!a) return
     selectedId = id
     saveSelected(dir, id)
-    show(win, a)
+    show(win, a, pushSleep)
   })
   const selectFromNotification = (a: Account) => {
     win.show()
     win.focus()
     selectedId = a.id
     saveSelected(dir, a.id)
-    show(win, a)
+    show(win, a, pushSleep)
     win.webContents.send('accounts:selected', a.id)
   }
   ipcMain.removeAllListeners('notify:show')
@@ -247,7 +301,7 @@ function createWindow(): BrowserWindow {
       setTimeout(() => notify(win, fake, { title: 'Alice', body: 'Lunch at 12?' }, () => selectFromNotification(fake)), 4000)
     )
   const first = accounts.find((a) => a.id === selectedId)
-  if (first) show(win, first)
+  if (first && !hib.isAsleep(first.id)) show(win, first, pushSleep)
   win.on('resize', () => attached?.setBounds(panelBounds(win)))
 
   const shot = process.env.GUISEDESK_SHOT

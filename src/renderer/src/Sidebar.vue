@@ -3,13 +3,14 @@ import { computed } from 'vue'
 import { kindOf, presetFor } from '../../main/presets'
 import LogoGlyph from './LogoGlyph.vue'
 import { logoStyle } from './logos'
+import { initials } from './initials'
 import { formatCount } from '../../main/unread'
 
 interface Acc {
   id: string; serviceId: string; label: string; colour: string; order: number
   custom?: { name: string; url: string; icon?: string }
 }
-const props = defineProps<{ accounts: Acc[]; selectedId?: string; counts?: Record<string, number> }>()
+const props = defineProps<{ accounts: Acc[]; selectedId?: string; counts?: Record<string, number>; asleep?: string[] }>()
 const emit = defineEmits<{ select: [id: string]; add: [] }>()
 
 const groups = computed(() => {
@@ -20,11 +21,6 @@ const groups = computed(() => {
   ]
 })
 
-function initials(label: string): string {
-  const words = label.replace(/[^\p{L}\p{N}\s._-]/gu, '').split(/[\s._-]+/).filter(Boolean)
-  const chars = words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? '?').slice(0, 2)
-  return chars.toUpperCase()
-}
 const serviceName = (a: Acc) => presetFor(a.serviceId)?.name ?? 'Custom'
 </script>
 
@@ -37,12 +33,12 @@ const serviceName = (a: Acc) => presetFor(a.serviceId)?.name ?? 'Custom'
         v-for="a in g.rows"
         :key="a.id"
         class="row"
-        :class="{ on: a.id === selectedId }"
+        :class="{ on: a.id === selectedId, sleep: asleep?.includes(a.id) }"
         @click="emit('select', a.id)"
       >
         <span class="av" :style="{ background: a.colour }">{{ initials(a.label) }}<span class="svc" :style="logoStyle(a.serviceId)"><LogoGlyph :service-id="a.serviceId" :icon="a.custom?.icon" /></span></span>
         <span class="name">{{ a.label }}<small>{{ serviceName(a) }}</small></span>
-        <span v-if="(counts?.[a.id] ?? 0) > 0" class="count">{{ formatCount(counts![a.id]) }}</span><span v-else class="slot"></span>
+        <span v-if="asleep?.includes(a.id)" class="zz">ZZ</span><span v-else-if="(counts?.[a.id] ?? 0) > 0" class="count">{{ formatCount(counts![a.id]) }}</span><span v-else class="slot"></span>
       </div>
     </div>
   </aside>

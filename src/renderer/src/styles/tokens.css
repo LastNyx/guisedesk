@@ -96,3 +96,13 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .btns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 .btn { height: 34px; padding: 0 14px; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; background: transparent; color: var(--text); border: 1px solid #ffffff18; }
 .btn.pri { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Hibernation (frames 1 and 5). */
+.row.sleep { opacity: 0.45; }
+.zz { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--dim); min-width: 20px; text-align: right; }
+.asleep { flex: 1; border-radius: 10px; display: grid; place-items: center; text-align: center; background: var(--side); border: 1px solid var(--line); }
+.asleep .bigav { width: 88px; height: 88px; margin: 0 auto 20px; font-size: 28px; opacity: 0.6; }
+.asleep .bigav .svc { width: 28px; height: 28px; border-radius: 8px; border-width: 3px; right: -3px; bottom: -3px; }
+.asleep .bigav .svc svg, .asleep .bigav .svc img { width: 14px; height: 14px; }
+.asleep h2 { margin: 0 0 6px; font-size: 21px; font-weight: 800; }
+.asleep p { margin: 0 0 22px; color: var(--muted); }

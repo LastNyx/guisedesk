@@ -19,6 +19,8 @@ interface Window {
     unread(): Promise<Record<string, number>>
     onUnread(cb: (counts: Record<string, number>) => void): void
     select(id: string): void
+    sleep(): Promise<Record<string, { minutes: number; waking: boolean }>>
+    onSleep(cb: (s: Record<string, { minutes: number; waking: boolean }>) => void): void
     /** Main selected an account (notification click). */
     onSelected(cb: (id: string) => void): void
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */

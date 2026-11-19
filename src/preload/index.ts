@@ -31,6 +31,8 @@ if (service) {
   unread: () => ipcRenderer.invoke('unread:get'),
   onUnread: (cb: (counts: Record<string, number>) => void) =>
     ipcRenderer.on('unread:update', (_e, counts) => cb(counts)),
+  sleep: () => ipcRenderer.invoke('sleep:get'),
+  onSleep: (cb: (s: unknown) => void) => ipcRenderer.on('sleep:update', (_e, s) => cb(s)),
   select: (id: string) => ipcRenderer.send('accounts:select', id),
   dialog: (open: boolean) => ipcRenderer.send('ui:dialog', open),
   add: (input: unknown) => ipcRenderer.invoke('accounts:add', input),
