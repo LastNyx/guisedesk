@@ -1,7 +1,8 @@
 // App lock (D9, D13-D17): state machine setup | locked | unlocked, scrypt hash, rate limit. No electron import.
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
-import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { writeAtomic } from './atomic'
 import { validateNewSecret, type LockKind } from './lockrules'
 
 export type LockState = 'setup' | 'locked' | 'unlocked'
@@ -88,12 +89,7 @@ export function createLock(opts: { dir: string; now?: () => number; params?: Scr
   let queue: Promise<unknown> = Promise.resolve()
   const listeners: ((s: LockState) => void)[] = []
   /** Atomic and private: temp file at 0600, then rename over lock.json. */
-  const write = (next: LockRecord) => {
-    const tmp = `${path}.tmp`
-    writeFileSync(tmp, JSON.stringify(next), { mode: 0o600 })
-    chmodSync(tmp, 0o600)
-    renameSync(tmp, path)
-  }
+  const write = (next: LockRecord) => writeAtomic(path, JSON.stringify(next), undefined, 0o600)
   const persist = () => {
     if (!rec) return
     const { fails: _f, waitUntil: _w, ...base } = rec
