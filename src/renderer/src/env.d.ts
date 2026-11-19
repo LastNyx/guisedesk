@@ -95,6 +95,10 @@ interface Window {
     updateCheck(): Promise<UpdateInfo>
     updateApply(): Promise<boolean>
     onUpdate(cb: (u: UpdateInfo) => void): void
+    /** Downloads (D31): the folder in use (the system Downloads dir by default) and the ask switch; pick opens a folder picker and saves it. */
+    downloads(): Promise<{ dir: string; ask: boolean }>
+    setDownloadsAsk(ask: boolean): Promise<boolean>
+    pickDownloadsDir(): Promise<string | undefined>
     add(input: {
       serviceId: string
       label: string

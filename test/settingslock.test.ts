@@ -12,6 +12,7 @@ const install = (extra: Record<string, Fn> = {}) => {
   bridge = {
     lockState: vi.fn(async () => ({ state: 'unlocked', kind: 'pin', pinLength: 6 })),
     prefs: vi.fn(async () => ({ idleLock: 10, dnd: false, startOnLogin: false })),
+    downloads: vi.fn(async () => ({ dir: '/dl', ask: false })),
     setIdle: vi.fn(async () => true),
     changeLock: vi.fn(async () => ({ ok: true })),
     lock: vi.fn(),

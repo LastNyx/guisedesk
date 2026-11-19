@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, openSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { app, BrowserWindow, clipboard, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
+import { basename, join } from 'node:path'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { dataDir, devUnlocked } from './paths'
 import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setServiceEnabled, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
@@ -25,6 +25,7 @@ import { applyIdle } from './prefs'
 import { checkForUpdate, realRun, type UpdateInfo } from './updater'
 import { version } from '../../package.json'
 import { buildContextMenu } from './contextmenu'
+import { doneNotice, loadDownloads, saveDownloads, uniquePath } from './downloads'
 import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
@@ -173,6 +174,25 @@ function hookContextMenu(v: WebContentsView): void {
   })
 }
 
+/** Downloads (D31): hooked once per account session (a session is shared by a rebuilt view). */
+const hookedSessions = new WeakSet<object>()
+let onDownloadDone: (ok: boolean, file: string) => void = () => {}
+function hookDownloads(ses: Electron.Session): void {
+  if (hookedSessions.has(ses)) return
+  hookedSessions.add(ses)
+  ses.on('will-download', (_e, item) => {
+    const s = loadDownloads(dir)
+    const folder = s.dir ?? app.getPath('downloads')
+    const name = item.getFilename()
+    if (s.ask) item.setSaveDialogOptions({ defaultPath: uniquePath(folder, name, existsSync) })
+    else item.setSavePath(uniquePath(folder, name, existsSync))
+    item.once('done', (_ev, state) => {
+      const path = item.getSavePath()
+      onDownloadDone(state === 'completed', path)
+    })
+  })
+}
+
 function viewFor(a: Account): WebContentsView {
   let v = views.get(a.id)
   if (!v) {
@@ -188,6 +208,7 @@ function viewFor(a: Account): WebContentsView {
     })
     owner.set(v.webContents.id, a)
     const ses = v.webContents.session
+    hookDownloads(ses)
     ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permissionAllowed(permission)))
     ses.setPermissionCheckHandler((_wc, permission) => permissionAllowed(permission))
     const preset = presetFor(a.serviceId)
@@ -393,6 +414,33 @@ function createWindow(): BrowserWindow {
     spawn('sh', [copy, update.latest, String(process.pid), root, join(dir, 'update.log')], { detached: true, stdio: ['ignore', log, log] }).unref()
     app.quit()
     return true
+  })
+  // Downloads (D31): finished notice respects DND; locked hides the name; a click shows the file in its folder.
+  onDownloadDone = (ok, path) => {
+    if (dnd || !Notification.isSupported()) return
+    const d = doneNotice({ ok, file: basename(path), locked: !isUnlocked() })
+    const n = new Notification({ title: d.title, body: d.body })
+    live.add(n)
+    if (ok && path) n.on('click', () => shell.showItemInFolder(path))
+    n.on('close', () => live.delete(n))
+    n.show()
+  }
+  const downloadsView = () => {
+    const s = loadDownloads(dir)
+    return { dir: s.dir ?? app.getPath('downloads'), ask: s.ask }
+  }
+  gipc.handle('downloads:get', (e: { sender: { id: number } }) => (fromApp(e) ? downloadsView() : undefined))
+  gipc.handle('downloads:set', (e: { sender: { id: number } }, v: { ask?: unknown }) => {
+    if (!fromApp(e) || !v || typeof v !== 'object') return false
+    saveDownloads(dir, { ...loadDownloads(dir), ask: v.ask === true })
+    return true
+  })
+  gipc.handle('downloads:pick', async (e: { sender: { id: number } }) => {
+    if (!fromApp(e)) return undefined
+    const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], defaultPath: downloadsView().dir })
+    const picked = r.canceled ? undefined : r.filePaths[0]
+    if (picked) saveDownloads(dir, { ...loadDownloads(dir), dir: picked })
+    return picked
   })
   // Settings > Lock, Notifications, General. All behind the guard; the idle choice reaches the running timer.
   const autostartOpts = () => ({ env: process.env, home: homedir(), appPath: app.getAppPath() })

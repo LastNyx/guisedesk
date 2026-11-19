@@ -18,6 +18,21 @@ onMounted(async () => {
   on.value = (await window.guisedesk.prefs()).startOnLogin
 })
 
+const dl = ref<{ dir: string; ask: boolean }>({ dir: '', ask: false })
+onMounted(async () => {
+  dl.value = await window.guisedesk.downloads()
+})
+
+async function toggleAsk() {
+  const next = !dl.value.ask
+  if (await window.guisedesk.setDownloadsAsk(next)) dl.value = { ...dl.value, ask: next }
+}
+
+async function pick() {
+  const dir = await window.guisedesk.pickDownloadsDir()
+  if (dir) dl.value = { ...dl.value, dir }
+}
+
 async function toggle() {
   const next = !on.value
   if (await window.guisedesk.setStartOnLogin(next)) on.value = next
@@ -34,6 +49,17 @@ async function toggle() {
       </div>
     </div>
     <div class="card">
+      <h4>Downloads</h4>
+      <div class="sr">
+        <span class="t"><b>Folder</b><span class="path" :title="dl.dir">{{ dl.dir }}</span></span>
+        <button class="btn" @click="pick">Change...</button>
+      </div>
+      <div class="sr">
+        <span class="t"><b>Ask where to save each time</b><span>Otherwise files go straight to the folder.</span></span>
+        <button class="tg" :class="{ on: dl.ask }" role="switch" :aria-checked="dl.ask" aria-label="Ask where to save each time" @click="toggleAsk"></button>
+      </div>
+    </div>
+    <div class="card">
       <h4>Updates</h4>
       <div class="sr">
         <span class="t"><b>GuiseDesk v{{ version }}</b><span>{{ status }}</span></span>
@@ -43,3 +69,7 @@ async function toggle() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.path { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>

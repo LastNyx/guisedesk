@@ -75,6 +75,9 @@ if (service) {
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateApply: () => ipcRenderer.invoke('update:apply'),
   onUpdate: (cb: (u: unknown) => void) => ipcRenderer.on('update:changed', (_e, u) => cb(u)),
+  downloads: () => ipcRenderer.invoke('downloads:get'),
+  setDownloadsAsk: (ask: boolean) => ipcRenderer.invoke('downloads:set', { ask }),
+  pickDownloadsDir: () => ipcRenderer.invoke('downloads:pick'),
   add: (input: unknown) => ipcRenderer.invoke('accounts:add', input),
   onSelected: (cb: (id: string) => void) => ipcRenderer.on('accounts:selected', (_e, id) => cb(id))
 })

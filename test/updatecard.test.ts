@@ -11,7 +11,8 @@ const accounts = [{ id: 'wa1', serviceId: 'whatsapp', label: 'Personal', colour:
 describe('Settings > General Updates card', () => {
   beforeEach(() => {
     ;(window as unknown as { guisedesk: unknown }).guisedesk = {
-      prefs: async () => ({ idleLock: 10, dnd: false, startOnLogin: false })
+      prefs: async () => ({ idleLock: 10, dnd: false, startOnLogin: false }),
+      downloads: async () => ({ dir: '/dl', ask: false })
     }
   })
   const card = async (update: UpdateInfo) => {
@@ -35,8 +36,8 @@ describe('Settings > General Updates card', () => {
     expect(none.findAll('.btn').map((b) => b.text())).toEqual(['Check for updates'])
     const w = mount(SettingsGeneral, { props: { update: { state: 'available', latest: 'v9.9.9' } } })
     await flushPromises()
-    expect(w.findAll('.btn').map((b) => b.text())).toEqual(['Check for updates', 'Update and restart'])
-    await w.findAll('.btn')[0].trigger('click')
+    expect(w.findAll('.btn').slice(1).map((b) => b.text())).toEqual(['Check for updates', 'Update and restart'])
+    await w.findAll('.btn')[1].trigger('click')
     await w.find('.btn.pri').trigger('click')
     expect(w.emitted('check')).toHaveLength(1)
     expect(w.emitted('apply')).toHaveLength(1)
@@ -77,6 +78,7 @@ describe('Update in the app', () => {
       select: vi.fn(),
       dialog: vi.fn(),
       prefs: vi.fn(async () => ({ idleLock: 10, dnd: false, startOnLogin: false })),
+      downloads: vi.fn(async () => ({ dir: '/dl', ask: false })),
       updateState: vi.fn(async () => ({ state: 'available', latest: 'v9.9.9' })),
       updateCheck: vi.fn(async () => ({ state: 'none' })),
       updateApply: vi.fn(async () => true),
