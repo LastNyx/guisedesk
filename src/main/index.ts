@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setServiceEnabled, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setServiceEnabled, setZoom, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -26,6 +26,7 @@ import { checkForUpdate, realRun, type UpdateInfo } from './updater'
 import { version } from '../../package.json'
 import { buildContextMenu } from './contextmenu'
 import { doneNotice, loadDownloads, saveDownloads, uniquePath } from './downloads'
+import { nextZoom, zoomKey, type KeyInput } from './shortcuts'
 import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
@@ -79,6 +80,8 @@ let attachedId: string | undefined
 // Input anywhere in the app (window or a service view) restarts the idle period; set once the triggers are wired.
 let touchIdle: () => void = () => {}
 let toggleSidebar: () => void = () => {}
+// Zoom keys (D32): true when the key was a zoom key (swallowed), whether or not a view was there to zoom.
+let zoomKeyDown: (i: KeyInput) => boolean = () => false
 const live = new Set<Notification>() // keep references so click handlers survive GC
 
 /** One request to the site for its favicon (Custom URL accounts only, once per host). */
@@ -125,6 +128,10 @@ function hookLinks(v: WebContentsView, a: Account): void {
     if (isSidebarShortcut(input) && isUnlocked()) {
       e.preventDefault()
       toggleSidebar()
+      return
+    }
+    if (zoomKeyDown(input)) {
+      e.preventDefault()
       return
     }
     // Ctrl+L locks even while focus is inside a service page (the page never sees the key).
@@ -216,6 +223,9 @@ function viewFor(a: Account): WebContentsView {
     v.webContents.setUserAgent(preset?.userAgent ?? CHROME_UA)
     hookLinks(v, a)
     hookContextMenu(v)
+    // Saved zoom (D32): applied now and again after each load (a new origin starts at 100%).
+    v.webContents.setZoomLevel(a.zoom ?? 0)
+    v.webContents.on('dom-ready', () => v!.webContents.setZoomLevel(owner.get(v!.webContents.id)?.zoom ?? 0))
     v.webContents.loadURL(preset?.startUrl ?? a.custom?.url ?? 'about:blank')
     views.set(a.id, v)
   }
@@ -373,6 +383,22 @@ function createWindow(): BrowserWindow {
     disabledServices: [...disabled],
     sidebarCollapsed
   })
+  // Zoom (D32): Ctrl+= / Ctrl+- / Ctrl+0 act on the shown account; saved per account, pushed to the renderer for the top bar chip.
+  const changeZoom = (id: string, level: number) => {
+    accounts = orderedAccounts(setZoom(dir, id, level))
+    const v = views.get(id)
+    const held = owner.get(v?.webContents.id ?? -1)
+    if (held) held.zoom = level === 0 ? undefined : level
+    v?.webContents.setZoomLevel(level)
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('accounts:zoom', snapshot())
+  }
+  zoomKeyDown = (input) => {
+    const dirKey = zoomKey(input)
+    if (!dirKey) return false
+    const a = isUnlocked() && !dialogOpen ? accounts.find((x) => x.id === attachedId) : undefined
+    if (a) changeZoom(a.id, nextZoom(a.zoom ?? 0, dirKey))
+    return true
+  }
   const fromApp = (e: { sender: { id: number } }) => e.sender.id === win.webContents.id
   ipcMain.removeHandler('lock:state')
   ipcMain.handle('lock:state', (e) => (fromApp(e) ? lock.info() : { state: 'locked' }))
@@ -504,6 +530,10 @@ function createWindow(): BrowserWindow {
       toggleSidebar()
       return
     }
+    if (zoomKeyDown(input)) {
+      e.preventDefault()
+      return
+    }
     if (!isLockShortcut(input)) return
     e.preventDefault()
     lock.lock()
@@ -630,6 +660,10 @@ function createWindow(): BrowserWindow {
     reconcile()
     push()
     pushSleep()
+    return snapshot()
+  })
+  gipc.handle('accounts:zoom-reset', (_e: unknown, id: string) => {
+    if (accounts.some((a) => a.id === id)) changeZoom(id, 0)
     return snapshot()
   })
   gipc.on('sidebar:set', (e: { sender: { id: number } }, c: unknown) => fromApp(e) && setSidebar(!!c))

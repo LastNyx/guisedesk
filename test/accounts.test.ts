@@ -3,7 +3,7 @@ import * as realFs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { addAccount, loadAccounts, loadDnd, loadSelected, loadSidebarCollapsed, orderedAccounts, saveAccounts, saveDnd, saveSelected, reorderAccounts, saveSidebarCollapsed, setMuted } from '../src/main/accounts'
+import { addAccount, loadAccounts, loadDnd, loadSelected, loadSidebarCollapsed, orderedAccounts, saveAccounts, saveDnd, saveSelected, reorderAccounts, saveSidebarCollapsed, setMuted, setZoom } from '../src/main/accounts'
 import { PRESETS } from '../src/main/presets'
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'gd-acc-'))
@@ -139,5 +139,18 @@ describe('mute and Do Not Disturb persistence', () => {
     expect(orderedAccounts(loadAccounts(dir)).map((a) => a.id)).toEqual(['a', 'b', 'c', 'd'])
     reorderAccounts(dir, ['d', 'b'])
     expect(orderedAccounts(loadAccounts(dir)).map((a) => [a.id, a.order])).toEqual([['d', 0], ['b', 1], ['a', 2], ['c', 3]])
+  })
+})
+
+describe('setZoom', () => {
+  it('persists the level on one account and 0 removes the key', () => {
+    const dir = tmp()
+    const mk = (id: string, order: number) => ({ id, serviceId: 'whatsapp', label: id, colour: '#000', order })
+    saveAccounts(dir, [mk('a', 0), mk('b', 1)])
+    const out = setZoom(dir, 'a', 1.5)
+    expect(out.find((x) => x.id === 'a')!.zoom).toBe(1.5)
+    expect(loadAccounts(dir).map((x) => x.zoom)).toEqual([1.5, undefined])
+    setZoom(dir, 'a', 0)
+    expect(readFileSync(join(dir, 'accounts.json'), 'utf8')).not.toContain('zoom')
   })
 })

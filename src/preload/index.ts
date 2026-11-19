@@ -65,6 +65,8 @@ if (service) {
   reload: (id: string) => ipcRenderer.send('accounts:reload', id),
   sleepNow: (id: string) => ipcRenderer.send('accounts:sleep', id),
   reorder: (ids: string[]) => ipcRenderer.invoke('accounts:reorder', ids),
+  resetZoom: (id: string) => ipcRenderer.invoke('accounts:zoom-reset', id),
+  onZoom: (cb: (s: unknown) => void) => ipcRenderer.on('accounts:zoom', (_e, s) => cb(s)),
   mute: (id: string, muted: boolean) => ipcRenderer.invoke('accounts:mute', id, muted),
   onOpenSettings: (cb: () => void) => ipcRenderer.on('settings:open', () => cb()),
   setServiceEnabled: (serviceId: string, enabled: boolean) => ipcRenderer.invoke('services:set', serviceId, enabled),

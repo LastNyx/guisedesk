@@ -105,6 +105,7 @@ describe('Settings in the app', () => {
       sleep: async () => ({}),
       onSleep: vi.fn(),
       onSidebar: vi.fn(),
+      onZoom: vi.fn(),
       onUpdate: () => {},
       updateState: async () => ({ state: 'none' }),
       onOpenSettings: vi.fn((cb) => (openSettings = cb)),

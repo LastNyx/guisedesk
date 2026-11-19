@@ -12,6 +12,8 @@ export interface Account {
   order: number
   idlePolicy?: string
   muted?: boolean
+  /** Chromium zoom level (D32); missing = 0 (100%). */
+  zoom?: number
   custom?: { name: string; url: string; hosts: string[]; icon?: string }
 }
 
@@ -175,6 +177,17 @@ export function reorderAccounts(dir: string, ids: string[]): Account[] {
   if (ids.some((id) => !all.some((a) => a.id === id))) throw new Error('Unknown account id')
   const listed = ids.map((id) => all.find((a) => a.id === id)!)
   const accounts = [...listed, ...all.filter((a) => !ids.includes(a.id))].map((a, order) => ({ ...a, order }))
+  saveAccounts(dir, accounts)
+  return accounts
+}
+
+/** Sets one account's zoom level (D32); 0 removes the key. Returns the saved list. */
+export function setZoom(dir: string, id: string, level: number): Account[] {
+  const accounts = loadAccounts(dir).map((a) => {
+    if (a.id !== id) return a
+    const { zoom: _old, ...rest } = a
+    return level === 0 ? rest : { ...rest, zoom: level }
+  })
   saveAccounts(dir, accounts)
   return accounts
 }

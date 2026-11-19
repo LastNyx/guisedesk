@@ -74,6 +74,7 @@ describe('Update in the app', () => {
       sleep: vi.fn(async () => ({})),
       onSleep: vi.fn(),
       onSidebar: vi.fn(),
+      onZoom: vi.fn(),
       onOpenSettings: vi.fn(),
       select: vi.fn(),
       dialog: vi.fn(),

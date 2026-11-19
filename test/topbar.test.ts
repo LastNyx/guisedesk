@@ -75,6 +75,7 @@ async function app(over: Record<string, unknown> = {}, lock = 'unlocked') {
     sleep: async () => ({}),
     onSleep: () => {},
     onSidebar: () => {},
+    onZoom: () => {},
     onUpdate: () => {},
     updateState: async () => ({ state: 'none' }),
     select: vi.fn(),
@@ -115,5 +116,17 @@ describe('App top bar', () => {
     expect((await app({}, 'locked')).w.find('.top .actions').exists()).toBe(false)
     const { w } = await app({ sleep: async () => ({ wa1: { minutes: 30, waking: false } }) })
     expect(w.find('.top .chip').text()).toBe('Asleep')
+  })
+})
+
+describe('TopBar zoom chip', () => {
+  it('shows NNN% only when zoomed, and a click emits reset-zoom', async () => {
+    expect(mount(TopBar, { props: { account: wa, asleep: false } }).find('.zoom').exists()).toBe(false)
+    expect(mount(TopBar, { props: { account: { ...wa, zoom: 0 }, asleep: false } }).find('.zoom').exists()).toBe(false)
+    const w = mount(TopBar, { props: { account: { ...wa, zoom: 1 }, asleep: false } })
+    expect(w.find('.zoom').text()).toBe('120%')
+    expect(w.find('.zoom').attributes('title')).toBe('Reset zoom')
+    await w.find('.zoom').trigger('click')
+    expect(w.emitted('reset-zoom')).toHaveLength(1)
   })
 })

@@ -213,6 +213,7 @@ describe('App sidebar state', () => {
       dialog: () => {},
       setSidebar,
       onSidebar: (cb: typeof push) => (push = cb),
+      onZoom: () => {},
       onUpdate: () => {},
       updateState: async () => ({ state: 'none' })
     }

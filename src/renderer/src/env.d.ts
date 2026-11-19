@@ -11,6 +11,7 @@ interface AccountRow {
   colour: string
   order: number
   muted?: boolean
+  zoom?: number
   idlePolicy?: string
   custom?: { name: string; url: string; icon?: string }
 }
@@ -78,6 +79,10 @@ interface Window {
     sleepNow(id: string): void
     /** Drag reorder (D28): full id list in the new order. */
     reorder(ids: string[]): Promise<Snapshot>
+    /** Reset the shown account's zoom to 100% (D32). */
+    resetZoom(id: string): Promise<Snapshot>
+    /** Main changed a zoom level with the keyboard: the fresh snapshot. */
+    onZoom(cb: (s: Snapshot) => void): void
     /** Mute or unmute an account (D19). */
     mute(id: string, muted: boolean): Promise<Snapshot>
     /** Settings was opened from the tray. */
