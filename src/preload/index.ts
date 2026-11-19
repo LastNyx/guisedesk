@@ -1,5 +1,6 @@
 // App UI bridge.
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
+import { countsAsInput } from './touch'
 
 // Service views (flagged by main with --gd-service) get only a notification shim; the app bridge is not exposed to them.
 const service = process.argv.includes('--gd-service')
@@ -24,7 +25,8 @@ const SHIM = `(() => {
 // Mouse and wheel input counts as activity for the idle lock (keys are seen by main's before-input-event).
 // Runs in the app window and in service views; throttled to one message a second.
 let lastTouch = 0
-const touch = () => {
+const touch = (e: Event) => {
+  if (!countsAsInput(e)) return
   const t = Date.now()
   if (t - lastTouch < 1000) return
   lastTouch = t
