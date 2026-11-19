@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { kindOf, presetFor } from '../../main/presets'
+import LogoGlyph from './LogoGlyph.vue'
+import { logoStyle } from './logos'
 
-interface Acc { id: string; serviceId: string; label: string; colour: string; order: number }
+interface Acc {
+  id: string; serviceId: string; label: string; colour: string; order: number
+  custom?: { name: string; url: string; icon?: string }
+}
 const props = defineProps<{ accounts: Acc[]; selectedId?: string }>()
-const emit = defineEmits<{ select: [id: string] }>()
+const emit = defineEmits<{ select: [id: string]; add: [] }>()
 
 const groups = computed(() => {
   const sorted = [...props.accounts].sort((a, b) => a.order - b.order)
@@ -20,12 +25,11 @@ function initials(label: string): string {
   return chars.toUpperCase()
 }
 const serviceName = (a: Acc) => presetFor(a.serviceId)?.name ?? 'Custom'
-const badge = (a: Acc) => presetFor(a.serviceId)?.icon ?? { glyph: '#', bg: '#444' }
 </script>
 
 <template>
   <aside class="side">
-    <div class="brand">GuiseDesk</div>
+    <div class="brand"><span class="bn">GuiseDesk</span><button class="ib add" title="Add account" @click="emit('add')"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></button></div>
     <div v-for="g in groups" :key="g.title" class="group">
       <div class="sec">{{ g.title }}</div>
       <div
@@ -35,7 +39,7 @@ const badge = (a: Acc) => presetFor(a.serviceId)?.icon ?? { glyph: '#', bg: '#44
         :class="{ on: a.id === selectedId }"
         @click="emit('select', a.id)"
       >
-        <span class="av" :style="{ background: a.colour }">{{ initials(a.label) }}<span class="svc" :style="{ background: badge(a).bg }">{{ badge(a).glyph }}</span></span>
+        <span class="av" :style="{ background: a.colour }">{{ initials(a.label) }}<span class="svc" :style="logoStyle(a.serviceId)"><LogoGlyph :service-id="a.serviceId" :icon="a.custom?.icon" /></span></span>
         <span class="name">{{ a.label }}<small>{{ serviceName(a) }}</small></span>
         <span class="slot"></span>
       </div>

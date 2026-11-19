@@ -39,6 +39,18 @@ describe('Sidebar', () => {
     expect(rows[0].classes()).not.toContain('on')
   })
 
+  it('shows the real service logo in each badge, a favicon for a custom site, and a + button', async () => {
+    const rows = w.findAll('.row')
+    expect(rows[0].find('.svc svg').html()).toContain('M12 2a10 10 0 0 0-8.6 15.1')
+    expect(rows[1].find('.svc svg').html()).toContain('M19.3 5.3A16.5')
+    const c = mount(Sidebar, {
+      props: { accounts: [{ ...acc('c1', 'custom', 'Wiki', 0), custom: { name: 'Wiki', url: 'https://w.example.com', icon: 'data:image/png;base64,AAAA' } }] }
+    })
+    expect(c.find('.svc img').attributes('src')).toBe('data:image/png;base64,AAAA')
+    await w.find('.brand .add').trigger('click')
+    expect(w.emitted('add')).toHaveLength(1)
+  })
+
   it('emits select with the account id on click', async () => {
     await w.findAll('.row')[0].trigger('click')
     expect(w.emitted('select')![0]).toEqual(['wa1'])

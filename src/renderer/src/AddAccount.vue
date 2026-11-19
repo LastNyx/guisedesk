@@ -1,0 +1,95 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { CUSTOM_PRESET_ID, PRESETS, presetFor } from '../../main/presets'
+import { validateNewAccount, type NewAccountInput } from '../../main/validate'
+import LogoGlyph from './LogoGlyph.vue'
+import { logoStyle } from './logos'
+
+const props = defineProps<{ serverError?: string }>()
+const emit = defineEmits<{ add: [input: NewAccountInput]; cancel: [] }>()
+
+const COLOURS = ['#6d5bd0', '#c7772a', '#2f7fb6', '#2b8a6e', '#b04c7a', '#4a5bc4']
+// Grid order follows the mockup (Discord last before Custom URL), not the preset list order.
+const ORDER = ['whatsapp', 'instagram', 'facebook', 'x', 'threads', 'tiktok', 'discord']
+const services = [
+  ...ORDER.map((id) => ({ id, name: presetFor(id)!.name })),
+  { id: CUSTOM_PRESET_ID, name: 'Custom URL' }
+]
+
+const serviceId = ref(PRESETS[0].id)
+const label = ref('')
+const colour = ref(COLOURS[0])
+const cname = ref('')
+const curl = ref('')
+const error = ref('')
+
+const isCustom = computed(() => serviceId.value === CUSTOM_PRESET_ID)
+const hint = computed(() => {
+  const p = presetFor(serviceId.value)
+  const name = p?.name ?? 'A custom site'
+  return p?.kind === 'chat'
+    ? `${name} is a chat: it stays on so notifications arrive. You can change that later.`
+    : `${name} is a feed: it sleeps after 30 minutes unused to save memory. You can change that later.`
+})
+
+function submit() {
+  const input: NewAccountInput = {
+    serviceId: serviceId.value,
+    label: label.value,
+    colour: colour.value,
+    ...(isCustom.value ? { custom: { name: cname.value, url: curl.value } } : {})
+  }
+  const v = validateNewAccount(input)
+  if (!v.ok) {
+    error.value = v.error
+    return
+  }
+  error.value = ''
+  const { serviceId: sid, label: l, colour: c, custom } = v.value
+  emit('add', { serviceId: sid, label: l, colour: c, ...(custom ? { custom: { name: custom.name, url: custom.url } } : {}) })
+}
+</script>
+
+<template>
+  <div class="veil" @keydown.esc="emit('cancel')">
+    <div class="glass" role="dialog" aria-label="Add an account">
+      <h3>Add an account</h3>
+      <p class="sub">Each account gets its own sealed session. You'll log in inside GuiseDesk right after.</p>
+      <div class="pick">
+        <div
+          v-for="s in services"
+          :key="s.id"
+          class="pk"
+          :class="{ sel: s.id === serviceId }"
+          @click="serviceId = s.id"
+        >
+          <div class="lg" :style="logoStyle(s.id)"><LogoGlyph :service-id="s.id" /></div>{{ s.name }}
+        </div>
+      </div>
+      <template v-if="isCustom">
+        <div class="lbl">Name</div>
+        <input v-model="cname" class="inp cname" placeholder="Team wiki" />
+        <div class="lbl">URL</div>
+        <input v-model="curl" class="inp curl" placeholder="https://wiki.example.com/" />
+      </template>
+      <div class="lbl">Label</div>
+      <input v-model="label" class="inp label" placeholder="Business" @keydown.enter="submit" />
+      <div class="lbl">Colour</div>
+      <div class="sw">
+        <i
+          v-for="c in COLOURS"
+          :key="c"
+          :class="{ sel: c === colour }"
+          :style="{ background: c }"
+          @click="colour = c"
+        ></i>
+      </div>
+      <div class="hint">{{ hint }}</div>
+      <div v-if="error || props.serverError" class="err">{{ error || props.serverError }}</div>
+      <div class="btns">
+        <button class="btn" @click="emit('cancel')">Cancel</button>
+        <button class="btn pri" @click="submit">Add &amp; open</button>
+      </div>
+    </div>
+  </div>
+</template>

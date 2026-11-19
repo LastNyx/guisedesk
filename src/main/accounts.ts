@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeAtomic, type Fs } from './atomic'
+import { validateNewAccount, type NewAccountInput } from './validate'
 
 export interface Account {
   id: string
@@ -11,7 +12,7 @@ export interface Account {
   order: number
   idlePolicy?: string
   muted?: boolean
-  custom?: { name: string; url: string; icon?: string }
+  custom?: { name: string; url: string; hosts: string[]; icon?: string }
 }
 
 const file = (dir: string) => join(dir, 'accounts.json')
@@ -33,14 +34,17 @@ export function orderedAccounts(accounts: Account[]): Account[] {
   return [...accounts].sort((a, b) => a.order - b.order)
 }
 
-export type NewAccount = Pick<Account, 'serviceId' | 'label' | 'colour' | 'custom'>
-
-export function addAccount(dir: string, input: NewAccount): Account {
+/** Validates (throws Error with the message to show), trims, and appends. icon: cached favicon path for a custom site. */
+export function addAccount(dir: string, input: NewAccountInput, icon?: string): Account {
+  const v = validateNewAccount(input)
+  if (!v.ok) throw new Error(v.error)
   const accounts = loadAccounts(dir)
   const order = accounts.reduce((m, a) => Math.max(m, a.order + 1), 0)
+  const { custom, ...rest } = v.value
   const account: Account = {
     id: randomBytes(8).toString('hex'),
-    ...input,
+    ...rest,
+    ...(custom ? { custom: icon ? { ...custom, icon } : custom } : {}),
     order,
     idlePolicy: 'default',
     muted: false
