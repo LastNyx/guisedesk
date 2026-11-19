@@ -10,6 +10,10 @@
   --muted: #8b8b99;
   --dim: #5c5c6a;
   --accent: #e5383b;
+  /* D34 motion: short, flat, ease-out. */
+  --dur-fast: 120ms;
+  --dur: 140ms;
+  --ease: cubic-bezier(.2, .7, .3, 1);
 }
 
 * { box-sizing: border-box; }
@@ -226,3 +230,21 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .ar.mu { margin: 0 -8px; cursor: default; }
 .ar.mu:hover { background: transparent; color: var(--muted); }
 .ar.mu .btn { height: 28px; font-size: 12px; cursor: pointer; }
+
+/* Motion (D34). Nothing here animates size or position of anything main sizes (sidebar width, panel bounds, service view).
+   Enter animations only: dialogs are v-if'd away at once on close, so nothing lingers over the native view (main re-attaches it then). */
+.row, .ib, .btn, .pk, .inp, .seg span, .tabs span, .ar, .ctx .mi, .chip.zoom, .pad button, .foot .upd {
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
+}
+.tg { transition: background-color var(--dur-fast) var(--ease); }
+.tg::after { transition: left var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease); }
+
+@keyframes gd-rise { from { opacity: 0; transform: translateY(4px); } }
+@keyframes gd-fade { from { opacity: 0; } }
+.veil { animation: gd-fade var(--dur) var(--ease); }
+.glass, .ctx, .settings, .settings .cards, .asleep, .lockv.reset > div, .foot .upd:not(.dot) { animation: gd-rise var(--dur) var(--ease); }
+.foot .upd.dot { animation: gd-fade var(--dur) var(--ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
