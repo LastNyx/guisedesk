@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { nextZoom, zoomKey, zoomPercent } from '../src/main/shortcuts'
+import { nextZoom, switchTarget, zoomKey, zoomPercent } from '../src/main/shortcuts'
+import { sidebarOrder } from '../src/main/services'
 
 const k = (key: string, over: Record<string, unknown> = {}) => ({ type: 'keyDown', key, control: true, shift: false, alt: false, meta: false, ...over })
 
@@ -35,5 +36,48 @@ describe('nextZoom', () => {
     expect(zoomPercent(1)).toBe(120)
     expect(zoomPercent(-1)).toBe(83)
     expect(zoomPercent(0.5)).toBe(110)
+  })
+})
+
+const ids = ['a', 'b', 'c']
+const tab = (over: Record<string, unknown> = {}) => k('Tab', over)
+
+describe('switchTarget', () => {
+  it('Ctrl+1..9 picks the nth id, null when there is none', () => {
+    expect(switchTarget(k('1'), ids, 'c')).toBe('a')
+    expect(switchTarget(k('3'), ids, 'a')).toBe('c')
+    expect(switchTarget(k('4'), ids, 'a')).toBeNull()
+    expect(switchTarget(k('9'), ids, 'a')).toBeNull()
+    expect(switchTarget(k('1'), [], undefined)).toBeNull()
+  })
+  it('Ctrl+Tab goes next and Ctrl+Shift+Tab previous, both wrapping', () => {
+    expect(switchTarget(tab(), ids, 'a')).toBe('b')
+    expect(switchTarget(tab(), ids, 'c')).toBe('a')
+    expect(switchTarget(tab({ shift: true }), ids, 'b')).toBe('a')
+    expect(switchTarget(tab({ shift: true }), ids, 'a')).toBe('c')
+  })
+  it('with no (or unknown) selection next gives the first and previous the last; no ids gives null', () => {
+    expect(switchTarget(tab(), ids, undefined)).toBe('a')
+    expect(switchTarget(tab(), ids, 'zzz')).toBe('a')
+    expect(switchTarget(tab({ shift: true }), ids, undefined)).toBe('c')
+    expect(switchTarget(tab(), [], undefined)).toBeNull()
+  })
+  it('needs Ctrl alone: no Ctrl, Alt, Meta, key-up, Shift on a digit or other keys', () => {
+    expect(switchTarget(k('2', { control: false }), ids, 'a')).toBeNull()
+    expect(switchTarget(k('2', { alt: true }), ids, 'a')).toBeNull()
+    expect(switchTarget(k('2', { meta: true }), ids, 'a')).toBeNull()
+    expect(switchTarget(k('2', { type: 'keyUp' }), ids, 'a')).toBeNull()
+    expect(switchTarget(k('2', { shift: true }), ids, 'a')).toBeNull()
+    expect(switchTarget(tab({ alt: true }), ids, 'a')).toBeNull()
+    expect(switchTarget(k('0'), ids, 'a')).toBeNull()
+    expect(switchTarget(k('x'), ids, 'a')).toBeNull()
+  })
+})
+
+describe('sidebarOrder', () => {
+  it('is Chats then Feeds, each by order', () => {
+    const mk = (id: string, serviceId: string, order: number) => ({ id, serviceId, order })
+    const list = [mk('ig', 'instagram', 0), mk('wa2', 'whatsapp', 3), mk('dc', 'discord', 2), mk('wa1', 'whatsapp', 1)]
+    expect(sidebarOrder(list).map((a) => a.id)).toEqual(['wa1', 'dc', 'wa2', 'ig'])
   })
 })

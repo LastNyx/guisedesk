@@ -30,3 +30,17 @@ export function nextZoom(level: number, dir: ZoomDir): number {
 
 /** Chromium zoom level as the percent people know: 1 -> 120. */
 export const zoomPercent = (level: number): number => Math.round(100 * 1.2 ** level)
+
+/**
+ * Ctrl+1..9 -> the nth id, Ctrl+Tab -> next, Ctrl+Shift+Tab -> previous (both wrap); ids are in sidebar order.
+ * No selection: next gives the first, previous the last. Null when the key is not a switch key or there is no such account.
+ */
+export function switchTarget(i: KeyInput, ids: string[], selectedId: string | undefined): string | null {
+  if (i.type !== 'keyDown' || !i.control || i.alt || i.meta || !ids.length) return null
+  if (/^[1-9]$/.test(i.key) && !i.shift) return ids[Number(i.key) - 1] ?? null
+  if (i.key !== 'Tab') return null
+  const at = ids.indexOf(selectedId ?? '')
+  const step = i.shift ? -1 : 1
+  if (at < 0) return i.shift ? ids[ids.length - 1] : ids[0]
+  return ids[(at + step + ids.length) % ids.length]
+}

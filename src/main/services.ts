@@ -23,6 +23,18 @@ export function visibleAccounts<T extends { serviceId: string }>(accounts: T[], 
   return accounts.filter((a) => !disabled.includes(a.serviceId))
 }
 
+/** The sidebar's two groups, Chats then Feeds, each sorted by `order`. One source for the sidebar and the keyboard switch (D33). */
+export function sidebarGroups<T extends { serviceId: string; order: number }>(accounts: T[]): { title: string; rows: T[] }[] {
+  const sorted = [...accounts].sort((a, b) => a.order - b.order)
+  return [
+    { title: 'Chats', rows: sorted.filter((a) => kindOf(a.serviceId) === 'chat') },
+    { title: 'Feeds', rows: sorted.filter((a) => kindOf(a.serviceId) === 'feed') }
+  ]
+}
+
+/** Accounts flat in sidebar order. */
+export const sidebarOrder = <T extends { serviceId: string; order: number }>(accounts: T[]): T[] => sidebarGroups(accounts).flatMap((g) => g.rows)
+
 function summary(rows: Acc[], on: boolean): string {
   if (!on) return 'Off · hidden from the sidebar, still logged in'
   if (!rows.length) return 'No accounts'

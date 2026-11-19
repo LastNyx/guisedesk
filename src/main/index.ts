@@ -26,7 +26,8 @@ import { checkForUpdate, realRun, type UpdateInfo } from './updater'
 import { version } from '../../package.json'
 import { buildContextMenu } from './contextmenu'
 import { doneNotice, loadDownloads, saveDownloads, uniquePath } from './downloads'
-import { nextZoom, zoomKey, type KeyInput } from './shortcuts'
+import { nextZoom, switchTarget, zoomKey, type KeyInput } from './shortcuts'
+import { sidebarOrder } from './services'
 import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
@@ -82,6 +83,8 @@ let touchIdle: () => void = () => {}
 let toggleSidebar: () => void = () => {}
 // Zoom keys (D32): true when the key was a zoom key (swallowed), whether or not a view was there to zoom.
 let zoomKeyDown: (i: KeyInput) => boolean = () => false
+// Ctrl+1..9 / Ctrl+Tab (D33): true when the key switched the account.
+let switchKeyDown: (i: KeyInput) => boolean = () => false
 const live = new Set<Notification>() // keep references so click handlers survive GC
 
 /** One request to the site for its favicon (Custom URL accounts only, once per host). */
@@ -130,7 +133,7 @@ function hookLinks(v: WebContentsView, a: Account): void {
       toggleSidebar()
       return
     }
-    if (zoomKeyDown(input)) {
+    if (zoomKeyDown(input) || switchKeyDown(input)) {
       e.preventDefault()
       return
     }
@@ -530,7 +533,7 @@ function createWindow(): BrowserWindow {
       toggleSidebar()
       return
     }
-    if (zoomKeyDown(input)) {
+    if (zoomKeyDown(input) || switchKeyDown(input)) {
       e.preventDefault()
       return
     }
@@ -714,6 +717,19 @@ function createWindow(): BrowserWindow {
     saveSelected(dir, id)
     show(win, a, pushSleep)
   })
+  // Keyboard switching (D33): same path as a click (wakes an asleep account); the renderer follows through accounts:selected.
+  // Not while locked or with a dialog/Settings open (dialogOpen covers both).
+  switchKeyDown = (input) => {
+    if (!isUnlocked() || dialogOpen) return false
+    const id = switchTarget(input, sidebarOrder(enabled()).map((a) => a.id), selectedId)
+    const a = id ? enabled().find((x) => x.id === id) : undefined
+    if (!a) return false
+    selectedId = a.id
+    saveSelected(dir, a.id)
+    show(win, a, pushSleep)
+    win.webContents.send('accounts:selected', a.id)
+    return true
+  }
   const selectFromNotification = (a: Account) => {
     win.show()
     win.focus()

@@ -8,6 +8,7 @@ import { initials } from './initials'
 import { formatCount } from '../../main/unread'
 import { version } from '../../../package.json'
 import { sideWidth } from '../../main/layout'
+import { sidebarGroups } from '../../main/services'
 
 interface Acc {
   id: string; serviceId: string; label: string; colour: string; order: number; muted?: boolean
@@ -16,13 +17,7 @@ interface Acc {
 const props = defineProps<{ accounts: Acc[]; selectedId?: string; counts?: Record<string, number>; asleep?: string[]; collapsed?: boolean; update?: boolean }>()
 const emit = defineEmits<{ select: [id: string]; add: []; settings: []; account: [id: string]; mute: [id: string, muted: boolean]; sleep: [id: string]; toggle: []; update: []; reorder: [ids: string[]] }>()
 
-const groups = computed(() => {
-  const sorted = [...props.accounts].sort((a, b) => a.order - b.order)
-  return [
-    { title: 'Chats', rows: sorted.filter((a) => kindOf(a.serviceId) === 'chat') },
-    { title: 'Feeds', rows: sorted.filter((a) => kindOf(a.serviceId) === 'feed') }
-  ]
-})
+const groups = computed(() => sidebarGroups(props.accounts))
 
 // Drag to reorder (D28): only within a group. The dragged row takes the target's place; the line shows which side it lands on.
 const dragId = ref<string | undefined>()
