@@ -1,0 +1,7 @@
+[
+  { "id": "wa-personal", "serviceId": "whatsapp", "label": "Personal", "colour": "#6d5bd0", "order": 0, "idlePolicy": "default", "muted": false },
+  { "id": "wa-business", "serviceId": "whatsapp", "label": "Business", "colour": "#c7772a", "order": 1, "idlePolicy": "default", "muted": false },
+  { "id": "dc-ben", "serviceId": "discord", "label": "ben_n", "colour": "#4a5bc4", "order": 2, "idlePolicy": "default", "muted": false },
+  { "id": "ig-ben", "serviceId": "instagram", "label": "@ben.n", "colour": "#b04c7a", "order": 3, "idlePolicy": "default", "muted": false },
+  { "id": "x-ben", "serviceId": "x", "label": "@ben_n", "colour": "#6d5bd0", "order": 4, "idlePolicy": "default", "muted": false }
+]
