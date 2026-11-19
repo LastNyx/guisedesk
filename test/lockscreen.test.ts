@@ -247,4 +247,13 @@ describe('Reset screen', () => {
     await flushPromises()
     expect(w.find('.err').text()).toBe('Refused')
   })
+
+  it('shows an error when the reset call throws', async () => {
+    install({ reset: vi.fn(async () => { throw new Error('disk gone') }) })
+    const w = mount(ResetScreen)
+    await w.find('input').setValue('RESET')
+    await w.find('.btn.dng').trigger('click')
+    await flushPromises()
+    expect(w.find('.err').text()).not.toBe('')
+  })
 })

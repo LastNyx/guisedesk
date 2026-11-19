@@ -16,6 +16,8 @@ async function go() {
     // On success main wipes everything and moves the lock to setup; the app then shows the setup screen by itself.
     const r = await window.guisedesk.reset(typed.value)
     if ('error' in r) error.value = r.error
+  } catch {
+    error.value = 'Reset failed. Nothing more was changed; try again.'
   } finally {
     busy.value = false
   }

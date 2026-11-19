@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
-import { dataDir } from './paths'
+import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
+import { dataDir, devUnlocked } from './paths'
 import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, setMuted, setServiceEnabled, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
@@ -36,11 +36,15 @@ function panelBounds(win: BrowserWindow) {
 }
 
 // App lock (D9): main is the source of truth. Locked or in setup, no account data goes to the renderer and no service view
-// is on the window. GUISEDESK_DEV_UNLOCKED=1 (dev only, honoured only with GUISEDESK_DATA) skips the lock for screenshot runs.
-const lock = createLock({ dir, startUnlocked: process.env.GUISEDESK_DEV_UNLOCKED === '1' && !!process.env.GUISEDESK_DATA })
+// is on the window. GUISEDESK_DEV_UNLOCKED=1 (dev only, honoured only with GUISEDESK_DATA plus GUISEDESK_DEV or GUISEDESK_SHOT, never for ~/.config/GuiseDesk) skips the lock for screenshot runs.
+const lock = createLock({ dir, startUnlocked: devUnlocked(process.env, dir, homedir()) })
 const isUnlocked = () => lock.state() === 'unlocked'
 // Every channel that returns or acts on account data is registered through this: it refuses while locked.
 const gipc = createGuardedIpc(ipcMain, isUnlocked)
+
+// No application menu (its default has Reload and DevTools); DevTools only in dev runs.
+Menu.setApplicationMenu(null)
+const devTools = process.env.GUISEDESK_DEV === '1'
 
 const views = new Map<string, WebContentsView>()
 let attached: WebContentsView | undefined
@@ -126,6 +130,7 @@ function viewFor(a: Account): WebContentsView {
         partition: `persist:${a.id}`,
         sandbox: true,
         contextIsolation: true,
+        devTools,
         preload: join(__dirname, '../preload/index.js'),
         additionalArguments: ['--gd-service']
       }
@@ -232,7 +237,8 @@ function createWindow(): BrowserWindow {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
-      contextIsolation: true
+      contextIsolation: true,
+      devTools
     }
   })
   // Dev-only: GUISEDESK_SHOT_DIALOG=add opens the Add account dialog, =reset the reset confirm screen, for the screenshot.
