@@ -19,6 +19,8 @@ import { createLock, isLockShortcut } from './lock'
 import { createGuardedIpc } from './guard'
 import { wireTriggers } from './triggers'
 import { resetData, RESET_WORD } from './reset'
+import { isAutostart, setAutostart, startsHidden } from './autostart'
+import { applyIdle } from './prefs'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
 // so sessions and partitions still land in the chosen dir. The name is what notifications and the tray show.
@@ -234,6 +236,8 @@ function createWindow(): BrowserWindow {
     backgroundColor: '#15151c',
     autoHideMenuBar: true,
     title: 'GuiseDesk',
+    // Started on login (--hidden): stay in the tray. The lock still starts locked.
+    show: !startsHidden(process.argv),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -245,7 +249,7 @@ function createWindow(): BrowserWindow {
   // =settings opens Settings with the sheet of account GUISEDESK_SHOT_SHEET.
   const dialogQuery =
     process.env.GUISEDESK_SHOT && ['add', 'reset', 'settings'].includes(process.env.GUISEDESK_SHOT_DIALOG ?? '')
-      ? `dialog=${process.env.GUISEDESK_SHOT_DIALOG}&sheet=${encodeURIComponent(process.env.GUISEDESK_SHOT_SHEET ?? '')}`
+      ? `dialog=${process.env.GUISEDESK_SHOT_DIALOG}&sheet=${encodeURIComponent(process.env.GUISEDESK_SHOT_SHEET ?? '')}&tab=${encodeURIComponent(process.env.GUISEDESK_SHOT_TAB ?? '')}`
       : ''
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL + (dialogQuery && `?${dialogQuery}`))
   else win.loadFile(join(__dirname, '../renderer/index.html'), { search: dialogQuery })
@@ -263,6 +267,7 @@ function createWindow(): BrowserWindow {
   const tray = createTray(showWindow, () => lock.lock(), openSettings, dnd, (on) => {
     dnd = on
     saveDnd(dir, on)
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('prefs:dnd-changed', on)
   })
   // Close hides to the tray; only quitting (tray Quit, session end) really closes.
   win.on('close', (e) => {
@@ -294,12 +299,38 @@ function createWindow(): BrowserWindow {
   ipcMain.removeAllListeners('lock:lock')
   ipcMain.on('lock:lock', (e) => fromApp(e) && lock.lock())
   // Idle (D15): the app window and service views report mouse input through the preload; keys come from before-input-event.
-  // The setting is read at start (Settings, ticket 12, changes it through setMinutes).
+  // The setting is read at start; Settings changes it through applyIdle (setMinutes).
   const triggers = wireTriggers({ lock, power: powerMonitor, now: Date.now, minutes: loadIdleMinutes(dir) })
   touchIdle = triggers.touch
   setInterval(triggers.check, 10_000).unref()
   ipcMain.removeAllListeners('idle:touch')
   ipcMain.on('idle:touch', (e) => (fromApp(e) || owner.has(e.sender.id)) && triggers.touch())
+  // Settings > Lock, Notifications, General. All behind the guard; the idle choice reaches the running timer.
+  const autostartOpts = () => ({ env: process.env, home: homedir(), execPath: process.execPath, appPath: app.getAppPath() })
+  gipc.handle('prefs:get', (e: { sender: { id: number } }) =>
+    fromApp(e) ? { idleLock: loadIdleMinutes(dir), dnd, startOnLogin: isAutostart(autostartOpts()) } : undefined
+  )
+  gipc.handle('prefs:idle', (e: { sender: { id: number } }, v: unknown) => fromApp(e) && applyIdle(dir, v, triggers))
+  gipc.handle('prefs:dnd', (e: { sender: { id: number } }, on: unknown) => {
+    if (!fromApp(e)) return false
+    dnd = !!on
+    saveDnd(dir, dnd)
+    tray.setDnd(dnd)
+    return true
+  })
+  gipc.handle('prefs:autostart', (e: { sender: { id: number } }, on: unknown) => {
+    if (!fromApp(e)) return false
+    try {
+      setAutostart(autostartOpts(), !!on)
+      return true
+    } catch (err) {
+      console.error('autostart failed:', err)
+      return false
+    }
+  })
+  gipc.handle('lock:change', (e: { sender: { id: number } }, current: string, kind: 'pin' | 'password', secret: string, repeat: string) =>
+    fromApp(e) ? lock.change(String(current ?? ''), kind, String(secret ?? ''), String(repeat ?? '')) : { error: 'Refused' }
+  )
   // Reset (D14): after RESET is typed, drop every view, wipe the partitions' storage, delete the files, back to setup.
   ipcMain.removeHandler('lock:reset')
   ipcMain.handle('lock:reset', async (e, typed) => {

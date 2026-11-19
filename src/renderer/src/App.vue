@@ -54,8 +54,9 @@ function wipe() {
 }
 
 async function apply(info: LockInfo) {
+  // The reset screen opened from Settings (unlocked) must not survive a lock; one opened from the lock screen stays until unlock.
+  if (info.state !== 'locked' || lockInfo.value.state === 'unlocked') resetting.value = false
   lockInfo.value = info
-  if (info.state !== 'locked') resetting.value = false
   if (info.state === 'unlocked') await loadAccounts()
   else wipe()
   ready.value = true
@@ -156,12 +157,12 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
 <template>
   <template v-if="!ready"></template>
   <SetupScreen v-else-if="lockInfo.state === 'setup'" />
-  <ResetScreen v-else-if="lockInfo.state === 'locked' && resetting" @cancel="resetting = false" />
+  <ResetScreen v-else-if="resetting" @cancel="resetting = false" />
   <LockScreen v-else-if="lockInfo.state === 'locked'" :kind="lockInfo.kind ?? 'pin'" :pin-length="lockInfo.pinLength" :wait-until="lockInfo.waitUntil" @forgot="resetting = true" />
   <div v-else class="shell">
     <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" @select="select" @add="openAdd" @mute="mute" @settings="openSettings" @account="openSheet" />
     <main class="main">
-      <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" />
+      <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" />
       <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
       <div v-else class="panel"></div>
     </main>

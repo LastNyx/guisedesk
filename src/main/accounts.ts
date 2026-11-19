@@ -108,6 +108,10 @@ export function loadIdleMinutes(dir: string): 5 | 10 | 30 | 'manual' {
   }
 }
 
+export function saveIdleMinutes(dir: string, minutes: 5 | 10 | 30 | 'manual'): void {
+  updateSettings(dir, { idleLock: minutes })
+}
+
 function updateSettings(dir: string, patch: Record<string, unknown>): void {
   let settings: Record<string, unknown> = {}
   try {

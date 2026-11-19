@@ -38,6 +38,15 @@ interface Window {
     unlock(entry: string): Promise<{ result: 'ok' } | { result: 'wrong' } | { result: 'wait'; until: number }>
     setupLock(kind: 'pin' | 'password', secret: string, repeat: string): Promise<{ ok: true } | { error: string }>
     lock(): void
+    /** Settings that act at once: idle lock minutes, Do Not Disturb, start on login (autostart entry present). */
+    prefs(): Promise<{ idleLock: 5 | 10 | 30 | 'manual'; dnd: boolean; startOnLogin: boolean }>
+    setIdle(minutes: 5 | 10 | 30 | 'manual'): Promise<boolean>
+    setDnd(on: boolean): Promise<boolean>
+    /** The tray checkbox changed Do Not Disturb. */
+    onDnd(cb: (on: boolean) => void): void
+    setStartOnLogin(on: boolean): Promise<boolean>
+    /** Needs the current PIN or password; main applies the setup rules to the new one. */
+    changeLock(current: string, kind: 'pin' | 'password', secret: string, repeat: string): Promise<{ ok: true } | { error: string; waitUntil?: number }>
     /** Wipes every account and session, after RESET is typed; main re-checks the word. */
     reset(typed: string): Promise<{ ok: true } | { error: string }>
     state(): Promise<Snapshot>

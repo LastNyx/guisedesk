@@ -140,6 +140,15 @@ export function createLock(opts: { dir: string; now?: () => number; params?: Scr
     lock(): void {
       if (state === 'unlocked' && rec) set('locked')
     },
+    /**
+     * Change PIN or password (Settings): needs the current entry, which goes through the same rate limit as unlock.
+     * Then the new one is checked with the setup rules and the hash and kind are rewritten.
+     */
+    change(current: string, kind: LockKind, secret: string, repeat: string): Promise<{ ok: true } | { error: string; waitUntil?: number }> {
+      const run = queue.then(() => replace(current, kind, secret, repeat))
+      queue = run.catch(() => undefined)
+      return run
+    },
     /** After reset removed lock.json: forget the record and go back to setup. */
     reset(): void {
       rec = undefined
@@ -152,6 +161,27 @@ export function createLock(opts: { dir: string; now?: () => number; params?: Scr
   async function attempt(entry: string): Promise<UnlockResult> {
     if (state === 'unlocked') return { result: 'ok' }
     if (state !== 'locked' || !rec) return { result: 'wrong' }
+    const r = await check(entry)
+    if (r.result === 'ok') set('unlocked')
+    return r
+  }
+
+  async function replace(current: string, kind: LockKind, secret: string, repeat: string): Promise<{ ok: true } | { error: string; waitUntil?: number }> {
+    if (state !== 'unlocked' || !rec) return { error: 'Not available while locked' }
+    const r = await check(current)
+    if (r.result === 'wait') return { error: 'Too many wrong tries. Wait a moment.', waitUntil: r.until }
+    if (r.result === 'wrong') return { error: 'Wrong current entry' }
+    const v = validateNewSecret(kind, secret, repeat)
+    if (!v.ok) return { error: v.error }
+    const next = await hashSecret(secret, params, kind)
+    write(next)
+    rec = next
+    return { ok: true }
+  }
+
+  /** The rate-limited check of an entry against the stored hash; shared by unlock and change. */
+  async function check(entry: string): Promise<UnlockResult> {
+    if (!rec) return { result: 'wrong' }
     if (now() < waitUntil) return { result: 'wait', until: waitUntil }
     if (await verifySecret(String(entry ?? ''), rec)) {
       if (fails || waitUntil) {
@@ -159,7 +189,6 @@ export function createLock(opts: { dir: string; now?: () => number; params?: Scr
         waitUntil = 0
         persist()
       }
-      set('unlocked')
       return { result: 'ok' }
     }
     if (++fails >= MAX_TRIES) {
