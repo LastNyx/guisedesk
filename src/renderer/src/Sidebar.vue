@@ -3,12 +3,13 @@ import { computed } from 'vue'
 import { kindOf, presetFor } from '../../main/presets'
 import LogoGlyph from './LogoGlyph.vue'
 import { logoStyle } from './logos'
+import { formatCount } from '../../main/unread'
 
 interface Acc {
   id: string; serviceId: string; label: string; colour: string; order: number
   custom?: { name: string; url: string; icon?: string }
 }
-const props = defineProps<{ accounts: Acc[]; selectedId?: string }>()
+const props = defineProps<{ accounts: Acc[]; selectedId?: string; counts?: Record<string, number> }>()
 const emit = defineEmits<{ select: [id: string]; add: [] }>()
 
 const groups = computed(() => {
@@ -41,7 +42,7 @@ const serviceName = (a: Acc) => presetFor(a.serviceId)?.name ?? 'Custom'
       >
         <span class="av" :style="{ background: a.colour }">{{ initials(a.label) }}<span class="svc" :style="logoStyle(a.serviceId)"><LogoGlyph :service-id="a.serviceId" :icon="a.custom?.icon" /></span></span>
         <span class="name">{{ a.label }}<small>{{ serviceName(a) }}</small></span>
-        <span class="slot"></span>
+        <span v-if="(counts?.[a.id] ?? 0) > 0" class="count">{{ formatCount(counts![a.id]) }}</span><span v-else class="slot"></span>
       </div>
     </div>
   </aside>

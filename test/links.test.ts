@@ -73,3 +73,13 @@ describe('links decide', () => {
     expect(route(u, acc('facebook')).action).toBe('deny')
   })
 })
+
+describe('redirectAllowed (main-frame will-redirect)', () => {
+  const wa = { id: 'wa1', serviceId: 'whatsapp', label: 'P', colour: '#000', order: 0 } as never
+  it('lets a same-service redirect load and sends an external host out', async () => {
+    const { redirectAllowed } = await import('../src/main/links')
+    expect(redirectAllowed('https://web.whatsapp.com/x', wa)).toEqual({ allow: true })
+    expect(redirectAllowed('https://evil.example.com/', wa)).toEqual({ allow: false, open: 'https://evil.example.com/' })
+    expect(redirectAllowed('file:///etc/passwd', wa)).toEqual({ allow: false })
+  })
+})

@@ -41,3 +41,10 @@ export function route(raw: string, account: Account, depth = 0): Route {
 export function decide(url: string, account: Account): Decision {
   return route(url, account).action === 'in-app' ? 'in-app' : 'external'
 }
+
+/** Main-frame redirect: allow only what loads in this account; external targets are handed out, a wrapper's real target is loaded. */
+export function redirectAllowed(url: string, account: Account): { allow: boolean; open?: string; load?: string } {
+  const r = route(url, account)
+  if (r.action === 'in-app') return r.url === url ? { allow: true } : { allow: false, load: r.url }
+  return r.action === 'external' ? { allow: false, open: r.url } : { allow: false }
+}

@@ -5,6 +5,7 @@ import Sidebar from './Sidebar.vue'
 
 const accounts = ref<AccountRow[]>([])
 const selectedId = ref<string | undefined>()
+const counts = ref<Record<string, number>>({})
 const adding = ref(false)
 const addError = ref('')
 
@@ -12,6 +13,8 @@ onMounted(async () => {
   const s = await window.guisedesk.state()
   accounts.value = s.accounts
   selectedId.value = s.selectedId
+  counts.value = await window.guisedesk.unread()
+  window.guisedesk.onUnread((c) => (counts.value = { ...c }))
   // Dev-only: the screenshot hook opens the dialog via ?dialog=add.
   if (new URLSearchParams(location.search).get('dialog') === 'add') openAdd()
 })
@@ -45,7 +48,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
 
 <template>
   <div class="shell">
-    <Sidebar :accounts="accounts" :selected-id="selectedId" @select="select" @add="openAdd" />
+    <Sidebar :accounts="accounts" :selected-id="selectedId" :counts="counts" @select="select" @add="openAdd" />
     <main class="main">
       <div class="panel"></div>
     </main>

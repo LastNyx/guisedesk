@@ -55,4 +55,13 @@ describe('Sidebar', () => {
     await w.findAll('.row')[0].trigger('click')
     expect(w.emitted('select')![0]).toEqual(['wa1'])
   })
+
+  it('shows a count pill only when the count is above 0, capped at 99+', () => {
+    const c = mount(Sidebar, { props: { accounts, counts: { wa1: 3, ig1: 0, dc1: 150 } } })
+    const rows = c.findAll('.row')
+    expect(rows[0].find('.count').text()).toBe('3')
+    expect(rows[1].find('.count').text()).toBe('99+')
+    expect(rows[2].find('.count').exists()).toBe(false)
+    expect(rows[2].find('.slot').exists()).toBe(true)
+  })
 })

@@ -8,7 +8,9 @@ import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
 import { validateNewAccount } from './validate'
 import { presetFor, CHROME_UA } from './presets'
-import { route } from './links'
+import { redirectAllowed, route } from './links'
+import { parseUnread, totalUnread } from './unread'
+import { createTray } from './tray'
 
 // Must run before `ready` so sessions and partitions land in the chosen dir.
 const dir = dataDir(process.env, homedir())
@@ -26,6 +28,11 @@ const views = new Map<string, WebContentsView>()
 let attached: WebContentsView | undefined
 // While a dialog is open the service view is detached (it would draw over the dialog).
 let dialogOpen = false
+// Unread count per account id, from page titles. GUISEDESK_FAKE_COUNTS="id=3,id2=12" (dev only) pins them instead.
+const counts: Record<string, number> = {}
+const fakeCounts = process.env.GUISEDESK_FAKE_COUNTS
+let onCounts: () => void = () => {}
+let quitting = false
 
 /** One request to the site for its favicon (Custom URL accounts only, once per host). */
 const fetchSite: Fetcher = async (url) => {
@@ -55,6 +62,19 @@ function hookLinks(v: WebContentsView, a: Account): void {
   })
   wc.on('will-navigate', (e, url) => {
     if (!go(url)) e.preventDefault()
+  })
+  wc.on('will-redirect', (e, url, _isInPlace, isMainFrame) => {
+    if (!isMainFrame) return
+    const d = redirectAllowed(url, a)
+    if (d.allow) return
+    e.preventDefault()
+    if (d.open) void shell.openExternal(d.open)
+    if (d.load) wc.loadURL(d.load)
+  })
+  wc.on('page-title-updated', (_e, title) => {
+    if (fakeCounts) return
+    counts[a.id] = parseUnread(title, presetFor(a.serviceId))
+    onCounts()
   })
 }
 
@@ -112,6 +132,18 @@ function createWindow(): BrowserWindow {
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL + (dialogQuery && `?${dialogQuery}`))
   else win.loadFile(join(__dirname, '../renderer/index.html'), { search: dialogQuery })
 
+  const showWindow = () => {
+    win.show()
+    win.focus()
+  }
+  const tray = createTray(showWindow)
+  // Close hides to the tray; only quitting (tray Quit, session end) really closes.
+  win.on('close', (e) => {
+    if (quitting) return
+    e.preventDefault()
+    win.hide()
+  })
+
   let accounts = orderedAccounts(loadAccounts(dir))
   let selectedId = loadSelected(dir)
   if (!accounts.some((a) => a.id === selectedId)) selectedId = accounts[0]?.id
@@ -124,6 +156,18 @@ function createWindow(): BrowserWindow {
   })
   ipcMain.removeHandler('accounts:state')
   ipcMain.handle('accounts:state', snapshot)
+  const push = () => {
+    tray.setUnread(totalUnread(counts))
+    if (!win.isDestroyed()) win.webContents.send('unread:update', counts)
+  }
+  onCounts = push
+  for (const pair of fakeCounts?.split(',') ?? []) {
+    const [id, n] = pair.split('=')
+    if (id) counts[id] = Number(n) || 0
+  }
+  ipcMain.removeHandler('unread:get')
+  ipcMain.handle('unread:get', () => ({ ...counts }))
+  push()
   ipcMain.removeAllListeners('ui:dialog')
   ipcMain.on('ui:dialog', (_e, open: boolean) => setDialog(win, !!open))
   ipcMain.removeHandler('accounts:add')
@@ -182,4 +226,6 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(createWindow)
-app.on('window-all-closed', () => app.quit())
+app.on('before-quit', () => {
+  quitting = true
+})
