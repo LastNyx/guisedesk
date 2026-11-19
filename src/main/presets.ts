@@ -23,12 +23,12 @@ const p = (
 
 export const PRESETS: Preset[] = [
   p('whatsapp', 'WhatsApp', 'https://web.whatsapp.com/', 'W', '#25d366', 'chat', ['whatsapp.com', 'whatsapp.net']),
-  p('discord', 'Discord', 'https://discord.com/app', 'D', '#5865f2', 'chat', ['discord.com', 'discordapp.com']),
-  p('instagram', 'Instagram', 'https://www.instagram.com/', 'I', '#c13584', 'feed', ['instagram.com']),
-  p('facebook', 'Facebook', 'https://www.facebook.com/', 'f', '#1877f2', 'feed', ['facebook.com']),
-  p('x', 'X', 'https://x.com/', 'X', '#000000', 'feed', ['x.com', 'twitter.com']),
-  p('threads', 'Threads', 'https://www.threads.com/', '@', '#000000', 'feed', ['threads.com', 'threads.net']),
-  p('tiktok', 'TikTok', 'https://www.tiktok.com/', 'T', '#000000', 'feed', ['tiktok.com'])
+  p('discord', 'Discord', 'https://discord.com/app', 'D', '#5865f2', 'chat', ['discord.com', 'discordapp.com', 'discord.gg', 'discordapp.net']),
+  p('instagram', 'Instagram', 'https://www.instagram.com/', 'I', '#c13584', 'feed', ['instagram.com', 'cdninstagram.com', 'facebook.com', 'fbcdn.net']),
+  p('facebook', 'Facebook', 'https://www.facebook.com/', 'f', '#1877f2', 'feed', ['facebook.com', 'fbcdn.net', 'fb.com']),
+  p('x', 'X', 'https://x.com/', 'X', '#000000', 'feed', ['x.com', 'twitter.com', 'twimg.com']),
+  p('threads', 'Threads', 'https://www.threads.com/', '@', '#000000', 'feed', ['threads.com', 'threads.net', 'instagram.com', 'cdninstagram.com', 'fbcdn.net']),
+  p('tiktok', 'TikTok', 'https://www.tiktok.com/', 'T', '#000000', 'feed', ['tiktok.com', 'tiktokcdn.com', 'tiktokv.com'])
 ]
 
 /** Custom URL service: kind feed by default; start URL and hosts come from the account. */

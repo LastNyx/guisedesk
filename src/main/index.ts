@@ -1,13 +1,14 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, nativeImage, WebContentsView } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeImage, shell, WebContentsView } from 'electron'
 import { dataDir } from './paths'
 import { addAccount, loadAccounts, loadSelected, orderedAccounts, saveSelected, type Account } from './accounts'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
 import { validateNewAccount } from './validate'
 import { presetFor, CHROME_UA } from './presets'
+import { route } from './links'
 
 // Must run before `ready` so sessions and partitions land in the chosen dir.
 const dir = dataDir(process.env, homedir())
@@ -34,6 +35,29 @@ const fetchSite: Fetcher = async (url) => {
   return bytes.length > 512 * 1024 ? null : { contentType: r.headers.get('content-type') ?? '', bytes }
 }
 
+/** Link policy (D8): in-app loads in this view, never a new window; mailto goes out; the rest is denied or external. */
+function hookLinks(v: WebContentsView, a: Account): void {
+  const wc = v.webContents
+  const go = (url: string): boolean => {
+    const r = route(url, a)
+    if (r.action === 'in-app') {
+      if (r.url !== url) wc.loadURL(r.url)
+      return r.url === url
+    }
+    if (r.action === 'external') void shell.openExternal(r.url)
+    return false
+  }
+  wc.setWindowOpenHandler(({ url }) => {
+    const r = route(url, a)
+    if (r.action === 'in-app') wc.loadURL(r.url)
+    else go(url)
+    return { action: 'deny' }
+  })
+  wc.on('will-navigate', (e, url) => {
+    if (!go(url)) e.preventDefault()
+  })
+}
+
 function viewFor(a: Account): WebContentsView {
   let v = views.get(a.id)
   if (!v) {
@@ -42,6 +66,7 @@ function viewFor(a: Account): WebContentsView {
     })
     const preset = presetFor(a.serviceId)
     v.webContents.setUserAgent(preset?.userAgent ?? CHROME_UA)
+    hookLinks(v, a)
     v.webContents.loadURL(preset?.startUrl ?? a.custom?.url ?? 'about:blank')
     views.set(a.id, v)
   }

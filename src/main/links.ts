@@ -1,0 +1,43 @@
+// Link policy (D8): same-service hosts stay in-app, the rest goes to the default browser. No electron import.
+import type { Account } from './accounts'
+import { presetFor } from './presets'
+
+export type Decision = 'in-app' | 'external'
+export interface Route {
+  action: Decision | 'deny'
+  /** The URL to act on (the unwrapped target for redirect wrappers). */
+  url: string
+}
+
+// Redirect wrappers whose real target is in the `u` query parameter.
+const WRAPPERS = new Set(['l.facebook.com', 'l.instagram.com', 'l.threads.net', 'l.threads.com'])
+
+function hostsOf(account: Account): string[] {
+  return presetFor(account.serviceId)?.hosts ?? account.custom?.hosts ?? []
+}
+
+function sameService(host: string, account: Account): boolean {
+  return hostsOf(account).some((h) => host === h || host.endsWith('.' + h))
+}
+
+export function route(raw: string, account: Account, depth = 0): Route {
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return { action: 'deny', url: raw }
+  }
+  if (u.protocol === 'mailto:') return { action: 'external', url: raw }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { action: 'deny', url: raw }
+  const host = u.hostname.toLowerCase()
+  const target = u.searchParams.get('u')
+  if (WRAPPERS.has(host) && target) {
+    return depth < 1 ? route(target, account, depth + 1) : { action: 'deny', url: raw }
+  }
+  return { action: sameService(host, account) ? 'in-app' : 'external', url: raw }
+}
+
+/** Where a link goes. Denied links (non-http(s), except mailto) report 'external' here; use route() to tell them apart. */
+export function decide(url: string, account: Account): Decision {
+  return route(url, account).action === 'in-app' ? 'in-app' : 'external'
+}
