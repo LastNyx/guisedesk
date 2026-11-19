@@ -19,6 +19,8 @@ interface Window {
     unread(): Promise<Record<string, number>>
     onUnread(cb: (counts: Record<string, number>) => void): void
     select(id: string): void
+    /** Main selected an account (notification click). */
+    onSelected(cb: (id: string) => void): void
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */
     dialog(open: boolean): void
     add(input: {

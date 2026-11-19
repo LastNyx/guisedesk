@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, nativeImage, shell, WebContentsView } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, nativeImage, shell, WebContentsView } from 'electron'
 import { dataDir } from './paths'
 import { addAccount, loadAccounts, loadSelected, orderedAccounts, saveSelected, type Account } from './accounts'
 import { overlay } from './composite'
@@ -11,6 +11,8 @@ import { presetFor, CHROME_UA } from './presets'
 import { redirectAllowed, route } from './links'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
+import { decideNotification } from './notify'
+import { permissionAllowed } from './permissions'
 
 // Must run before `ready` so sessions and partitions land in the chosen dir.
 const dir = dataDir(process.env, homedir())
@@ -33,6 +35,9 @@ const counts: Record<string, number> = {}
 const fakeCounts = process.env.GUISEDESK_FAKE_COUNTS
 let onCounts: () => void = () => {}
 let quitting = false
+// Which account a service view's webContents belongs to, for notification IPC.
+const owner = new Map<number, Account>()
+const live = new Set<Notification>() // keep references so click handlers survive GC
 
 /** One request to the site for its favicon (Custom URL accounts only, once per host). */
 const fetchSite: Fetcher = async (url) => {
@@ -82,8 +87,18 @@ function viewFor(a: Account): WebContentsView {
   let v = views.get(a.id)
   if (!v) {
     v = new WebContentsView({
-      webPreferences: { partition: `persist:${a.id}`, sandbox: true, contextIsolation: true }
+      webPreferences: {
+        partition: `persist:${a.id}`,
+        sandbox: true,
+        contextIsolation: true,
+        preload: join(__dirname, '../preload/index.js'),
+        additionalArguments: ['--gd-service']
+      }
     })
+    owner.set(v.webContents.id, a)
+    const ses = v.webContents.session
+    ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permissionAllowed(permission)))
+    ses.setPermissionCheckHandler((_wc, permission) => permissionAllowed(permission))
     const preset = presetFor(a.serviceId)
     v.webContents.setUserAgent(preset?.userAgent ?? CHROME_UA)
     hookLinks(v, a)
@@ -91,6 +106,28 @@ function viewFor(a: Account): WebContentsView {
     views.set(a.id, v)
   }
   return v
+}
+
+/** Page notification (D4): decide, then show a native one; click shows the window and selects the account. */
+function notify(win: BrowserWindow, a: Account, p: { title?: string; body?: string; icon?: string }, onClick: () => void): void {
+  const d = decideNotification(
+    {
+      accountId: a.id,
+      serviceName: presetFor(a.serviceId)?.name ?? a.custom?.name ?? a.serviceId,
+      label: a.label,
+      title: String(p.title ?? '').slice(0, 200),
+      body: String(p.body ?? '').slice(0, 1000),
+      icon: p.icon
+    },
+    { muted: a.muted }
+  )
+  if (d.action === 'drop' || !Notification.isSupported()) return
+  // Linux has no subtitle: the service line goes under the body (frame 7).
+  const n = new Notification({ title: d.title, body: [d.body, d.subtitle].filter(Boolean).join('\n') })
+  live.add(n)
+  n.on('click', onClick)
+  n.on('close', () => live.delete(n))
+  n.show()
 }
 
 function show(win: BrowserWindow, a: Account): void {
@@ -190,6 +227,25 @@ function createWindow(): BrowserWindow {
     saveSelected(dir, id)
     show(win, a)
   })
+  const selectFromNotification = (a: Account) => {
+    win.show()
+    win.focus()
+    selectedId = a.id
+    saveSelected(dir, a.id)
+    show(win, a)
+    win.webContents.send('accounts:selected', a.id)
+  }
+  ipcMain.removeAllListeners('notify:show')
+  ipcMain.on('notify:show', (e, p) => {
+    const a = owner.get(e.sender.id)
+    if (a && p && typeof p === 'object') notify(win, a, p, () => selectFromNotification(a))
+  })
+  // Dev-only: GUISEDESK_FAKE_NOTIFY=<account id> fires one fake notification 4 s after load.
+  const fake = accounts.find((a) => a.id === process.env.GUISEDESK_FAKE_NOTIFY)
+  if (fake)
+    win.webContents.once('did-finish-load', () =>
+      setTimeout(() => notify(win, fake, { title: 'Alice', body: 'Lunch at 12?' }, () => selectFromNotification(fake)), 4000)
+    )
   const first = accounts.find((a) => a.id === selectedId)
   if (first) show(win, first)
   win.on('resize', () => attached?.setBounds(panelBounds(win)))

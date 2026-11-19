@@ -15,6 +15,7 @@ onMounted(async () => {
   selectedId.value = s.selectedId
   counts.value = await window.guisedesk.unread()
   window.guisedesk.onUnread((c) => (counts.value = { ...c }))
+  window.guisedesk.onSelected((id) => (selectedId.value = id))
   // Dev-only: the screenshot hook opens the dialog via ?dialog=add.
   if (new URLSearchParams(location.search).get('dialog') === 'add') openAdd()
 })
