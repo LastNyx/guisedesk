@@ -19,6 +19,9 @@ BUILD_CMD="${GUISEDESK_UPDATE_BUILD:-npm run build}"
 LAUNCH_CMD="${GUISEDESK_UPDATE_LAUNCH:-sh launchers/guisedesk.sh}"
 
 cd "$ROOT"
+# Started from the desktop, PATH may lack node (fnm's per-shell dir is gone after a reboot): fall back to fnm's default.
+export GIT_TERMINAL_PROMPT=0
+command -v npm >/dev/null 2>&1 || PATH="$HOME/.local/share/fnm/aliases/default/bin:$PATH"
 
 # Wait for the app to be gone (give up after 60 s: it is still running, so leave everything alone).
 i=0
@@ -51,6 +54,7 @@ build() {
 
 early() { echo "update: $1; nothing was changed"; launch; exit 1; }
 
+[ -n "${GUISEDESK_UPDATE_CI:-}" ] || command -v npm >/dev/null 2>&1 || early "npm not found on PATH"
 [ -z "$(git status --porcelain)" ] || early "refused: local changes present"
 OLD_SHA="$(git rev-parse HEAD)"
 OLD_REF="$(git symbolic-ref -q --short HEAD || echo "$OLD_SHA")"

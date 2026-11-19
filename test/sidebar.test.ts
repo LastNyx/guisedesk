@@ -177,8 +177,8 @@ describe('Sidebar', () => {
   })
 
   it('shows GuiseDesk v<package.json version> in the footer in full mode only', () => {
-    expect(version).toBe('0.1.0')
-    expect(w.find('.foot .ver').text()).toBe('GuiseDesk v0.1.0')
+    expect(version).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(w.find('.foot .ver').text()).toBe(`GuiseDesk v${version}`)
     const c = mount(Sidebar, { props: { accounts, collapsed: true } })
     expect(c.find('.foot .ver').exists()).toBe(false)
   })
