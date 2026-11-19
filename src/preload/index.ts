@@ -35,6 +35,7 @@ if (service) {
   onSleep: (cb: (s: unknown) => void) => ipcRenderer.on('sleep:update', (_e, s) => cb(s)),
   select: (id: string) => ipcRenderer.send('accounts:select', id),
   dialog: (open: boolean) => ipcRenderer.send('ui:dialog', open),
+  mute: (id: string, muted: boolean) => ipcRenderer.invoke('accounts:mute', id, muted),
   add: (input: unknown) => ipcRenderer.invoke('accounts:add', input),
   onSelected: (cb: (id: string) => void) => ipcRenderer.on('accounts:selected', (_e, id) => cb(id))
 })

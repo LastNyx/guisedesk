@@ -64,4 +64,31 @@ describe('Sidebar', () => {
     expect(rows[2].find('.count').exists()).toBe(false)
     expect(rows[2].find('.slot').exists()).toBe(true)
   })
+
+  it('shows a muted account with a grey count and a muted sub line', () => {
+    const c = mount(Sidebar, {
+      props: { accounts: [{ ...acc('dc1', 'discord', 'ben_n', 0), muted: true }, acc('wa1', 'whatsapp', 'Personal', 1)], counts: { dc1: 1, wa1: 2 } }
+    })
+    const rows = c.findAll('.row')
+    expect(rows[0].find('.count').classes()).toContain('muted')
+    expect(rows[0].find('.name').text()).toBe('ben_nDiscord - muted')
+    expect(rows[1].find('.count').classes()).not.toContain('muted')
+    expect(rows[1].find('.name').text()).toBe('PersonalWhatsApp')
+  })
+
+  it('right-click opens a Mute / Unmute item that emits mute with the new state', async () => {
+    const c = mount(Sidebar, {
+      props: { accounts: [{ ...acc('dc1', 'discord', 'ben_n', 0), muted: true }, acc('wa1', 'whatsapp', 'Personal', 1)] }
+    })
+    expect(c.find('.ctx').exists()).toBe(false)
+    await c.findAll('.row')[1].trigger('contextmenu')
+    expect(c.find('.ctx .mi').text()).toBe('Mute')
+    await c.find('.ctx .mi').trigger('click')
+    expect(c.emitted('mute')![0]).toEqual(['wa1', true])
+    expect(c.find('.ctx').exists()).toBe(false)
+    await c.findAll('.row')[0].trigger('contextmenu')
+    expect(c.find('.ctx .mi').text()).toBe('Unmute')
+    await c.find('.ctx .mi').trigger('click')
+    expect(c.emitted('mute')![1]).toEqual(['dc1', false])
+  })
 })

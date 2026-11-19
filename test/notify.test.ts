@@ -25,4 +25,12 @@ describe('decideNotification', () => {
     const off = { muted: false, dnd: false, asleep: false, locked: false }
     expect(decideNotification(event, off).action).toBe('full')
   })
+  it('drops a muted account notification', () => {
+    expect(decideNotification(event, { muted: true })).toEqual({ action: 'drop' })
+  })
+  it('drops everything while Do Not Disturb is on, and is normal again when off', () => {
+    expect(decideNotification(event, { dnd: true })).toEqual({ action: 'drop' })
+    expect(decideNotification(event, { dnd: true, muted: false }).action).toBe('drop')
+    expect(decideNotification(event, { dnd: false }).action).toBe('full')
+  })
 })

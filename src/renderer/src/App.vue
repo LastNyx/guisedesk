@@ -32,6 +32,10 @@ function select(id: string) {
   window.guisedesk.select(id)
 }
 
+async function mute(id: string, muted: boolean) {
+  accounts.value = (await window.guisedesk.mute(id, muted)).accounts
+}
+
 function openAdd() {
   adding.value = true
   window.guisedesk.dialog(true)
@@ -56,7 +60,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
 
 <template>
   <div class="shell">
-    <Sidebar :accounts="accounts" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" @select="select" @add="openAdd" />
+    <Sidebar :accounts="accounts" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" @select="select" @add="openAdd" @mute="mute" />
     <main class="main">
       <AsleepPanel v-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
       <div v-else class="panel"></div>

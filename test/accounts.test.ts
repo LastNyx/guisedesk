@@ -3,7 +3,7 @@ import * as realFs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { addAccount, loadAccounts, orderedAccounts, saveAccounts } from '../src/main/accounts'
+import { addAccount, loadAccounts, loadDnd, loadSelected, orderedAccounts, saveAccounts, saveDnd, saveSelected, setMuted } from '../src/main/accounts'
 import { PRESETS } from '../src/main/presets'
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'gd-acc-'))
@@ -84,5 +84,31 @@ describe('accounts store', () => {
       serviceId: 'custom', label: 'Wiki', colour: '#6d5bd0', custom: { name: ' Team Wiki ', url: 'https://Wiki.Example.com:8080/start' }
     })
     expect(a.custom).toEqual({ name: 'Team Wiki', url: 'https://Wiki.Example.com:8080/start', hosts: ['wiki.example.com'] })
+  })
+})
+
+describe('mute and Do Not Disturb persistence', () => {
+  it('setMuted stores the flag per account and survives a reload', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gd-mute-'))
+    const a = addAccount(dir, { serviceId: 'discord', label: 'ben_n', colour: '#6d5bd0' })
+    const b = addAccount(dir, { serviceId: 'whatsapp', label: 'Personal', colour: '#6d5bd0' })
+    setMuted(dir, a.id, true)
+    const again = loadAccounts(dir)
+    expect(again.find((x) => x.id === a.id)?.muted).toBe(true)
+    expect(again.find((x) => x.id === b.id)?.muted).toBe(false)
+    setMuted(dir, a.id, false)
+    expect(loadAccounts(dir).find((x) => x.id === a.id)?.muted).toBe(false)
+  })
+  it('Do Not Disturb is off by default, is stored in settings and keeps the selected account', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gd-dnd-'))
+    expect(loadDnd(dir)).toBe(false)
+    saveSelected(dir, 'x1')
+    saveDnd(dir, true)
+    expect(loadDnd(dir)).toBe(true)
+    expect(loadSelected(dir)).toBe('x1')
+    saveSelected(dir, 'x2')
+    expect(loadDnd(dir)).toBe(true)
+    saveDnd(dir, false)
+    expect(loadDnd(dir)).toBe(false)
   })
 })

@@ -10,6 +10,7 @@ interface AccountRow {
   label: string
   colour: string
   order: number
+  muted?: boolean
   custom?: { name: string; url: string; icon?: string }
 }
 
@@ -25,6 +26,8 @@ interface Window {
     onSelected(cb: (id: string) => void): void
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */
     dialog(open: boolean): void
+    /** Mute or unmute an account (D19). */
+    mute(id: string, muted: boolean): Promise<{ accounts: AccountRow[]; selectedId?: string }>
     add(input: {
       serviceId: string
       label: string

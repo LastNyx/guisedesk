@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, Notification, nativeImage, shell, WebContentsView } from 'electron'
 import { dataDir } from './paths'
-import { addAccount, loadAccounts, loadSelected, orderedAccounts, saveSelected, type Account } from './accounts'
+import { addAccount, loadAccounts, loadDnd, loadSelected, orderedAccounts, saveDnd, saveSelected, setMuted, type Account } from './accounts'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
 import { validateNewAccount } from './validate'
@@ -15,7 +15,10 @@ import { decideNotification } from './notify'
 import { permissionAllowed } from './permissions'
 import { createHibernator, limitMinutes } from './hibernate'
 
-// Must run before `ready` so sessions and partitions land in the chosen dir.
+// Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
+// so sessions and partitions still land in the chosen dir. The name is what notifications and the tray show.
+app.setName('GuiseDesk')
+app.setDesktopName('guisedesk.desktop')
 const dir = dataDir(process.env, homedir())
 mkdirSync(dir, { recursive: true })
 app.setPath('userData', dir)
@@ -36,6 +39,8 @@ const counts: Record<string, number> = {}
 const fakeCounts = process.env.GUISEDESK_FAKE_COUNTS
 let onCounts: () => void = () => {}
 let quitting = false
+// Global Do Not Disturb (D19), loaded from settings in createWindow.
+let dnd = false
 // Which account a service view's webContents belongs to, for notification IPC.
 const owner = new Map<number, Account>()
 // Hibernation (D7): sleep = view destroyed, partition kept. sleepState feeds the sidebar (ZZ) and the asleep panel.
@@ -125,7 +130,7 @@ function notify(win: BrowserWindow, a: Account, p: { title?: string; body?: stri
       body: String(p.body ?? '').slice(0, 1000),
       icon: p.icon
     },
-    { muted: a.muted, asleep: hib.isAsleep(a.id) }
+    { muted: a.muted, dnd, asleep: hib.isAsleep(a.id) }
   )
   if (d.action === 'drop' || !Notification.isSupported()) return
   // Linux has no subtitle: the service line goes under the body (frame 7).
@@ -211,7 +216,11 @@ function createWindow(): BrowserWindow {
     win.show()
     win.focus()
   }
-  const tray = createTray(showWindow)
+  dnd = loadDnd(dir)
+  const tray = createTray(showWindow, dnd, (on) => {
+    dnd = on
+    saveDnd(dir, on)
+  })
   // Close hides to the tray; only quitting (tray Quit, session end) really closes.
   win.on('close', (e) => {
     if (quitting) return
@@ -261,6 +270,15 @@ function createWindow(): BrowserWindow {
   push()
   ipcMain.removeAllListeners('ui:dialog')
   ipcMain.on('ui:dialog', (_e, open: boolean) => setDialog(win, !!open))
+  ipcMain.removeHandler('accounts:mute')
+  ipcMain.handle('accounts:mute', (_e, id: string, muted: boolean) => {
+    if (!accounts.some((a) => a.id === id)) return snapshot()
+    accounts = orderedAccounts(setMuted(dir, id, !!muted))
+    // The notification path reads the Account captured when the view was built: keep it current.
+    const held = owner.get(views.get(id)?.webContents.id ?? -1)
+    if (held) held.muted = !!muted
+    return snapshot()
+  })
   ipcMain.removeHandler('accounts:add')
   ipcMain.handle('accounts:add', async (_e, input) => {
     const v = validateNewAccount(input)

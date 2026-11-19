@@ -71,3 +71,29 @@ export function saveSelected(dir: string, id: string): void {
   }
   writeAtomic(join(dir, 'settings.json'), JSON.stringify({ ...settings, selectedAccount: id }, null, 2))
 }
+
+/** Sets one account's muted flag (D19) and returns the saved list. */
+export function setMuted(dir: string, id: string, muted: boolean): Account[] {
+  const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, muted } : a))
+  saveAccounts(dir, accounts)
+  return accounts
+}
+
+/** Global Do Not Disturb (D19) lives in settings.json (key dnd); off when missing. */
+export function loadDnd(dir: string): boolean {
+  try {
+    return JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).dnd === true
+  } catch {
+    return false
+  }
+}
+
+export function saveDnd(dir: string, dnd: boolean): void {
+  let settings: Record<string, unknown> = {}
+  try {
+    settings = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))
+  } catch {
+    /* first write */
+  }
+  writeAtomic(join(dir, 'settings.json'), JSON.stringify({ ...settings, dnd }, null, 2))
+}
