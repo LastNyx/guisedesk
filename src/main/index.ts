@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, openSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { dataDir, devUnlocked } from './paths'
 import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setServiceEnabled, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
@@ -24,6 +24,7 @@ import { isAutostart, setAutostart, startsHidden } from './autostart'
 import { applyIdle } from './prefs'
 import { checkForUpdate, realRun, type UpdateInfo } from './updater'
 import { version } from '../../package.json'
+import { buildContextMenu } from './contextmenu'
 import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
@@ -138,6 +139,40 @@ function hookLinks(v: WebContentsView, a: Account): void {
   })
 }
 
+/** Right-click menu (D30): the template builder gives action ids; they map to webContents, clipboard and shell calls here. */
+function hookContextMenu(v: WebContentsView): void {
+  const wc = v.webContents
+  wc.on('context-menu', (_e, p) => {
+    const nav = wc.navigationHistory
+    const items = buildContextMenu(p, { canGoBack: nav.canGoBack(), canGoForward: nav.canGoForward(), locked: !isUnlocked() })
+    if (!items.length) return
+    const run = (action: string, value?: string) => {
+      switch (action) {
+        case 'open-link':
+          if (/^https?:\/\//i.test(p.linkURL)) void shell.openExternal(p.linkURL)
+          break
+        case 'copy-link': clipboard.writeText(p.linkURL); break
+        case 'save-image': wc.downloadURL(p.srcURL); break
+        case 'copy-image': wc.copyImageAt(p.x, p.y); break
+        case 'copy-image-address': clipboard.writeText(p.srcURL); break
+        case 'spell': if (value) wc.replaceMisspelling(value); break
+        case 'undo': wc.undo(); break
+        case 'redo': wc.redo(); break
+        case 'cut': wc.cut(); break
+        case 'copy': wc.copy(); break
+        case 'paste': wc.paste(); break
+        case 'select-all': wc.selectAll(); break
+        case 'back': nav.goBack(); break
+        case 'forward': nav.goForward(); break
+        case 'reload': wc.reload(); break
+      }
+    }
+    Menu.buildFromTemplate(
+      items.map((i) => ('type' in i ? { type: 'separator' as const } : { label: i.label, enabled: i.enabled, click: () => run(i.action, i.value) }))
+    ).popup()
+  })
+}
+
 function viewFor(a: Account): WebContentsView {
   let v = views.get(a.id)
   if (!v) {
@@ -159,6 +194,7 @@ function viewFor(a: Account): WebContentsView {
     v.setBorderRadius(VIEW_RADIUS)
     v.webContents.setUserAgent(preset?.userAgent ?? CHROME_UA)
     hookLinks(v, a)
+    hookContextMenu(v)
     v.webContents.loadURL(preset?.startUrl ?? a.custom?.url ?? 'about:blank')
     views.set(a.id, v)
   }
