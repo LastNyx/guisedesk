@@ -508,6 +508,13 @@ function createWindow(): BrowserWindow {
     return snapshot()
   })
   gipc.on('sidebar:set', (e: { sender: { id: number } }, c: unknown) => fromApp(e) && setSidebar(!!c))
+  // Reload (top bar): an asleep account wakes through the normal show path, otherwise its view reloads.
+  gipc.on('accounts:reload', (e: { sender: { id: number } }, id: string) => {
+    const a = fromApp(e) && enabled().find((x) => x.id === id)
+    if (!a) return
+    if (hib.isAsleep(a.id)) show(win, a, pushSleep)
+    else views.get(a.id)?.webContents.reload()
+  })
   gipc.on('ui:dialog', (_e: unknown, open: boolean) => setDialog(win, !!open))
   gipc.handle('accounts:mute', (_e: unknown, id: string, muted: boolean) => {
     if (!accounts.some((a) => a.id === id)) return snapshot()

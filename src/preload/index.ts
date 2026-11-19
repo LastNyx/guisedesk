@@ -62,6 +62,7 @@ if (service) {
   onSidebar: (cb: (collapsed: boolean) => void) => ipcRenderer.on('sidebar:changed', (_e, c) => cb(c)),
   select: (id: string) => ipcRenderer.send('accounts:select', id),
   dialog: (open: boolean) => ipcRenderer.send('ui:dialog', open),
+  reload: (id: string) => ipcRenderer.send('accounts:reload', id),
   mute: (id: string, muted: boolean) => ipcRenderer.invoke('accounts:mute', id, muted),
   onOpenSettings: (cb: () => void) => ipcRenderer.on('settings:open', () => cb()),
   setServiceEnabled: (serviceId: string, enabled: boolean) => ipcRenderer.invoke('services:set', serviceId, enabled),

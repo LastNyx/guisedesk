@@ -9,8 +9,8 @@ describe('layout (shared by renderer and main)', () => {
   })
 
   it('the view bounds follow the sidebar width', () => {
-    expect(panelBounds(1240, 780, false)).toEqual({ x: 248, y: 12, width: 976, height: 752 })
-    expect(panelBounds(1240, 780, true)).toEqual({ x: 80, y: 12, width: 1144, height: 752 })
+    expect(panelBounds(1240, 780, false)).toEqual({ x: 248, y: 58, width: 976, height: 706 })
+    expect(panelBounds(1240, 780, true)).toEqual({ x: 80, y: 58, width: 1144, height: 706 })
     expect(panelBounds(100, 10, false).width).toBe(0)
   })
 

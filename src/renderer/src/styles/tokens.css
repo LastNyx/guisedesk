@@ -63,7 +63,12 @@ body {
   text-transform: uppercase;
 }
 
-.main { flex: 1; min-width: 0; padding: 12px 16px 16px; display: flex; }
+.main { flex: 1; min-width: 0; padding: 12px 16px 16px; display: flex; flex-direction: column; }
+/* Account top bar (frame 1, v5): .top (34px + 12px gap, TOP_BAR_H / TOP_BAR_GAP in src/main/layout.ts) is defined with the Settings header below. */
+.top .title span { color: var(--muted); font-weight: 600; }
+.top .actions { margin-left: auto; display: flex; gap: 6px; }
+.chip { font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 4px 9px; border-radius: 6px; background: var(--raise); color: var(--muted); }
+.chip.live { color: #4ade80; }
 
 .panel {
   flex: 1;

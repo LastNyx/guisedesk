@@ -8,6 +8,7 @@ import ResetScreen from './ResetScreen.vue'
 import Settings from './Settings.vue'
 import SetupScreen from './SetupScreen.vue'
 import Sidebar from './Sidebar.vue'
+import TopBar from './TopBar.vue'
 import { visibleAccounts } from '../../main/services'
 
 const accounts = ref<AccountRow[]>([])
@@ -25,6 +26,7 @@ const shown = computed(() => visibleAccounts(accounts.value, disabled.value))
 // Settings fills the main area; main detaches the service view while it is open (like a dialog). The sheet only exists inside it.
 const settingsOpen = ref(false)
 const sheetId = ref<string | undefined>()
+const current = computed(() => shown.value.find((a) => a.id === selectedId.value))
 const sheetAccount = computed(() => accounts.value.find((a) => a.id === sheetId.value))
 const adding = ref(false)
 const addError = ref('')
@@ -102,6 +104,14 @@ async function mute(id: string, muted: boolean) {
   take(await window.guisedesk.mute(id, muted))
 }
 
+function reload(id: string) {
+  window.guisedesk.reload(id)
+}
+
+function lockNow() {
+  window.guisedesk.lock()
+}
+
 function toggleSidebar() {
   window.guisedesk.setSidebar(!collapsed.value)
 }
@@ -170,6 +180,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
   <div v-else class="shell">
     <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @settings="openSettings" @account="openSheet" />
     <main class="main">
+      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @settings="openSheet(current.id)" />
       <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" />
       <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
       <div v-else class="panel"></div>

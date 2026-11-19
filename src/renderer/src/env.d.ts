@@ -65,6 +65,8 @@ interface Window {
     onSidebar(cb: (collapsed: boolean) => void): void
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */
     dialog(open: boolean): void
+    /** Top bar Reload: reloads the account's view, or wakes it when asleep. */
+    reload(id: string): void
     /** Mute or unmute an account (D19). */
     mute(id: string, muted: boolean): Promise<Snapshot>
     /** Settings was opened from the tray. */
