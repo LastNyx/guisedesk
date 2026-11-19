@@ -14,6 +14,8 @@ import { createTray } from './tray'
 import { decideNotification } from './notify'
 import { permissionAllowed } from './permissions'
 import { createHibernator, limitMinutes } from './hibernate'
+import { createLock, isLockShortcut } from './lock'
+import { createGuardedIpc } from './guard'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
 // so sessions and partitions still land in the chosen dir. The name is what notifications and the tray show.
@@ -29,6 +31,13 @@ function panelBounds(win: BrowserWindow) {
   const [w, h] = win.getContentSize()
   return { x: SIDE + 16, y: 12, width: Math.max(0, w - SIDE - 32), height: Math.max(0, h - 28) }
 }
+
+// App lock (D9): main is the source of truth. Locked or in setup, no account data goes to the renderer and no service view
+// is on the window. GUISEDESK_DEV_UNLOCKED=1 (dev only, honoured only with GUISEDESK_DATA) skips the lock for screenshot runs.
+const lock = createLock({ dir, startUnlocked: process.env.GUISEDESK_DEV_UNLOCKED === '1' && !!process.env.GUISEDESK_DATA })
+const isUnlocked = () => lock.state() === 'unlocked'
+// Every channel that returns or acts on account data is registered through this: it refuses while locked.
+const gipc = createGuardedIpc(ipcMain, isUnlocked)
 
 const views = new Map<string, WebContentsView>()
 let attached: WebContentsView | undefined
@@ -86,7 +95,14 @@ function hookLinks(v: WebContentsView, a: Account): void {
     if (d.open) void shell.openExternal(d.open)
     if (d.load) wc.loadURL(d.load)
   })
-  wc.on('before-input-event', () => hib.touch(a.id))
+  wc.on('before-input-event', (e, input) => {
+    hib.touch(a.id)
+    // Ctrl+L locks even while focus is inside a service page (the page never sees the key).
+    if (isLockShortcut(input)) {
+      e.preventDefault()
+      lock.lock()
+    }
+  })
   wc.on('page-title-updated', (_e, title) => {
     if (fakeCounts) return
     counts[a.id] = parseUnread(title, presetFor(a.serviceId))
@@ -143,13 +159,17 @@ function notify(win: BrowserWindow, a: Account, p: { title?: string; body?: stri
 
 /** Puts the selected view in the panel. A view rebuilt from sleep is attached only once its page has loaded; the asleep panel covers the gap. */
 function attach(win: BrowserWindow, v: WebContentsView): void {
-  if (win.isDestroyed() || dialogOpen || attached !== v || (attachedId && sleepState[attachedId]?.waking)) return
+  if (win.isDestroyed() || dialogOpen || !isUnlocked() || attached !== v || (attachedId && sleepState[attachedId]?.waking)) return
   win.contentView.addChildView(v)
   v.setBounds(panelBounds(win))
 }
 
+function detach(win: BrowserWindow, v: WebContentsView): void {
+  if (!win.isDestroyed() && win.contentView.children.includes(v)) win.contentView.removeChildView(v)
+}
+
 function show(win: BrowserWindow, a: Account, push: () => void): void {
-  if (attached && !dialogOpen) win.contentView.removeChildView(attached)
+  if (attached) detach(win, attached)
   hib.touch(a.id)
   const wasAsleep = hib.isAsleep(a.id)
   if (wasAsleep) {
@@ -188,7 +208,7 @@ function setDialog(win: BrowserWindow, open: boolean): void {
   if (open === dialogOpen) return
   dialogOpen = open
   if (!attached) return
-  if (open) win.contentView.removeChildView(attached)
+  if (open) detach(win, attached)
   else attach(win, attached)
 }
 
@@ -238,17 +258,42 @@ function createWindow(): BrowserWindow {
     ),
     selectedId
   })
-  ipcMain.removeHandler('accounts:state')
-  ipcMain.handle('accounts:state', snapshot)
+  const fromApp = (e: { sender: { id: number } }) => e.sender.id === win.webContents.id
+  ipcMain.removeHandler('lock:state')
+  ipcMain.handle('lock:state', (e) => (fromApp(e) ? lock.info() : { state: 'locked' }))
+  ipcMain.removeHandler('lock:setup')
+  ipcMain.handle('lock:setup', (e, kind, secret, repeat) => (fromApp(e) ? lock.setup(kind, secret, repeat) : { error: 'Refused' }))
+  ipcMain.removeHandler('lock:unlock')
+  ipcMain.handle('lock:unlock', (e, entry) => (fromApp(e) ? lock.unlock(entry) : { result: 'wrong' }))
+  ipcMain.removeAllListeners('lock:lock')
+  ipcMain.on('lock:lock', (e) => fromApp(e) && lock.lock())
+  // Ctrl+L inside the app UI (a focused service view is handled in hookLinks).
+  win.webContents.on('before-input-event', (e, input) => {
+    if (!isLockShortcut(input)) return
+    e.preventDefault()
+    lock.lock()
+  })
+  lock.onChange(() => {
+    if (win.isDestroyed()) return
+    if (isUnlocked()) {
+      if (attached) attach(win, attached)
+    } else {
+      // Views keep running; they just leave the window. The renderer wipes its own account data on 'locked'.
+      dialogOpen = false
+      if (attached) detach(win, attached)
+      win.webContents.focus()
+    }
+    win.webContents.send('lock:changed', lock.info())
+  })
+  gipc.handle('accounts:state', snapshot)
   const push = () => {
     tray.setUnread(totalUnread(counts))
-    if (!win.isDestroyed()) win.webContents.send('unread:update', counts)
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('unread:update', counts)
   }
   const pushSleep = () => {
-    if (!win.isDestroyed()) win.webContents.send('sleep:update', { ...sleepState })
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('sleep:update', { ...sleepState })
   }
-  ipcMain.removeHandler('sleep:get')
-  ipcMain.handle('sleep:get', () => ({ ...sleepState }))
+  gipc.handle('sleep:get', () => ({ ...sleepState }))
   // Dev-only: GUISEDESK_FAKE_ASLEEP=<id> starts that account asleep (stays asleep even if selected, so the panel can be shot).
   const fakeAsleep = process.env.GUISEDESK_FAKE_ASLEEP
   if (accounts.some((a) => a.id === fakeAsleep)) {
@@ -265,13 +310,10 @@ function createWindow(): BrowserWindow {
     const [id, n] = pair.split('=')
     if (id) counts[id] = Number(n) || 0
   }
-  ipcMain.removeHandler('unread:get')
-  ipcMain.handle('unread:get', () => ({ ...counts }))
+  gipc.handle('unread:get', () => ({ ...counts }))
   push()
-  ipcMain.removeAllListeners('ui:dialog')
-  ipcMain.on('ui:dialog', (_e, open: boolean) => setDialog(win, !!open))
-  ipcMain.removeHandler('accounts:mute')
-  ipcMain.handle('accounts:mute', (_e, id: string, muted: boolean) => {
+  gipc.on('ui:dialog', (_e: unknown, open: boolean) => setDialog(win, !!open))
+  gipc.handle('accounts:mute', (_e: unknown, id: string, muted: boolean) => {
     if (!accounts.some((a) => a.id === id)) return snapshot()
     accounts = orderedAccounts(setMuted(dir, id, !!muted))
     // The notification path reads the Account captured when the view was built: keep it current.
@@ -279,8 +321,7 @@ function createWindow(): BrowserWindow {
     if (held) held.muted = !!muted
     return snapshot()
   })
-  ipcMain.removeHandler('accounts:add')
-  ipcMain.handle('accounts:add', async (_e, input) => {
+  gipc.handle('accounts:add', async (_e: unknown, input: any) => {
     const v = validateNewAccount(input)
     if (!v.ok) return { error: v.error }
     const icon = v.value.custom ? await cacheFavicon(dir, v.value.custom.url, fetchSite) : undefined
@@ -291,8 +332,7 @@ function createWindow(): BrowserWindow {
     show(win, account, pushSleep)
     return snapshot()
   })
-  ipcMain.removeAllListeners('accounts:select')
-  ipcMain.on('accounts:select', (_e, id: string) => {
+  gipc.on('accounts:select', (_e: unknown, id: string) => {
     const a = accounts.find((x) => x.id === id)
     if (!a) return
     selectedId = id
@@ -302,6 +342,7 @@ function createWindow(): BrowserWindow {
   const selectFromNotification = (a: Account) => {
     win.show()
     win.focus()
+    if (!isUnlocked()) return // a click while locked only raises the window
     selectedId = a.id
     saveSelected(dir, a.id)
     show(win, a, pushSleep)
@@ -329,7 +370,7 @@ function createWindow(): BrowserWindow {
         try {
           const image = await win.webContents.capturePage()
           // Service views are separate surfaces: paste the selected one into the content panel, and save it raw next to it.
-          if (attached && !dialogOpen) {
+          if (attached && !dialogOpen && isUnlocked()) {
             const v = await attached.webContents.capturePage()
             writeFileSync(shot.replace(/\.png$/, '') + '-view.png', v.toPNG())
             const b = attached.getBounds()

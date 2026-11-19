@@ -14,8 +14,22 @@ interface AccountRow {
   custom?: { name: string; url: string; icon?: string }
 }
 
+interface LockInfo {
+  state: 'setup' | 'locked' | 'unlocked'
+  kind?: 'pin' | 'password'
+  pinLength?: number
+  waitUntil?: number
+}
+
 interface Window {
   guisedesk: {
+    /** Lock state from main (the source of truth). Account data is only available while 'unlocked'. */
+    lockState(): Promise<LockInfo>
+    onLock(cb: (info: LockInfo) => void): void
+    /** The entry goes to main once and is checked there; the answer is ok, wrong or a wait. */
+    unlock(entry: string): Promise<{ result: 'ok' } | { result: 'wrong' } | { result: 'wait'; until: number }>
+    setupLock(kind: 'pin' | 'password', secret: string, repeat: string): Promise<{ ok: true } | { error: string }>
+    lock(): void
     state(): Promise<{ accounts: AccountRow[]; selectedId?: string }>
     unread(): Promise<Record<string, number>>
     onUnread(cb: (counts: Record<string, number>) => void): void

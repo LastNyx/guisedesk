@@ -1,0 +1,148 @@
+// App lock (D9, D13-D17): state machine setup | locked | unlocked, scrypt hash, rate limit. No electron import.
+import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
+import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { validateNewSecret, type LockKind } from './lockrules'
+
+export type LockState = 'setup' | 'locked' | 'unlocked'
+export type UnlockResult = { result: 'ok' } | { result: 'wrong' } | { result: 'wait'; until: number }
+export interface ScryptParams { N: number; r: number; p: number; keylen: number }
+export interface LockRecord extends ScryptParams {
+  v: 1
+  kind: LockKind
+  /** Digits in a PIN, so the pad can submit by itself; null for a password. */
+  pinLength: number | null
+  salt: string
+  hash: string
+}
+
+export const DEFAULT_PARAMS: ScryptParams = { N: 32768, r: 8, p: 1, keylen: 64 }
+export const MAX_TRIES = 5
+export const WAIT_MS = 30_000
+
+const derive = (secret: string, salt: Buffer, q: ScryptParams): Promise<Buffer> =>
+  new Promise((resolve, reject) =>
+    scrypt(secret.normalize('NFKC'), salt, q.keylen, { N: q.N, r: q.r, p: q.p, maxmem: 256 * q.N * q.r }, (e, key) => (e ? reject(e) : resolve(key)))
+  )
+
+/** Hash with a fresh random 16-byte salt; the record keeps the params so they can change later. */
+export async function hashSecret(secret: string, params: ScryptParams = DEFAULT_PARAMS, kind: LockKind = 'password'): Promise<LockRecord> {
+  const salt = randomBytes(16)
+  const key = await derive(secret, salt, params)
+  return {
+    v: 1,
+    kind,
+    pinLength: kind === 'pin' ? secret.length : null,
+    salt: salt.toString('base64'),
+    N: params.N,
+    r: params.r,
+    p: params.p,
+    keylen: params.keylen,
+    hash: key.toString('base64')
+  }
+}
+
+const sane = (r: LockRecord) =>
+  r && r.v === 1 && (r.kind === 'pin' || r.kind === 'password') && typeof r.salt === 'string' && typeof r.hash === 'string' &&
+  Number.isInteger(r.N) && r.N >= 2 && r.N <= 1 << 20 && (r.N & (r.N - 1)) === 0 &&
+  Number.isInteger(r.r) && r.r >= 1 && r.r <= 32 && Number.isInteger(r.p) && r.p >= 1 && r.p <= 16 &&
+  Number.isInteger(r.keylen) && r.keylen >= 16 && r.keylen <= 128
+
+/** Constant-time comparison of the derived key with the stored one. */
+export async function verifySecret(secret: string, rec: LockRecord): Promise<boolean> {
+  if (!sane(rec) || typeof secret !== 'string') return false
+  const want = Buffer.from(rec.hash, 'base64')
+  const got = await derive(secret, Buffer.from(rec.salt, 'base64'), rec)
+  return want.length === got.length && timingSafeEqual(want, got)
+}
+
+/** Ctrl+L, as Electron reports it in before-input-event. */
+export const isLockShortcut = (i: { type: string; control?: boolean; alt?: boolean; meta?: boolean; key: string }): boolean =>
+  i.type === 'keyDown' && !!i.control && !i.alt && !i.meta && i.key.toLowerCase() === 'l'
+
+function readRecord(path: string): LockRecord | undefined {
+  try {
+    const r = JSON.parse(readFileSync(path, 'utf8')) as LockRecord
+    return sane(r) ? r : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export interface LockInfo { state: LockState; kind?: LockKind; pinLength?: number; waitUntil?: number }
+
+export function createLock(opts: { dir: string; now?: () => number; params?: ScryptParams; startUnlocked?: boolean }) {
+  const path = join(opts.dir, 'lock.json')
+  const now = opts.now ?? Date.now
+  const params = opts.params ?? DEFAULT_PARAMS
+  let rec = readRecord(path)
+  // App start is always locked, or in setup when there is no (usable) lock.json.
+  let state: LockState = opts.startUnlocked ? 'unlocked' : rec ? 'locked' : 'setup'
+  let fails = 0
+  let waitUntil = 0
+  let queue: Promise<unknown> = Promise.resolve()
+  const listeners: ((s: LockState) => void)[] = []
+  const set = (s: LockState) => {
+    if (s === state) return
+    state = s
+    for (const l of listeners) l(s)
+  }
+
+  return {
+    state: (): LockState => state,
+    info(): LockInfo {
+      return {
+        state,
+        kind: rec?.kind,
+        pinLength: rec?.pinLength ?? undefined,
+        waitUntil: waitUntil > now() ? waitUntil : undefined
+      }
+    },
+    onChange(cb: (s: LockState) => void): void {
+      listeners.push(cb)
+    },
+    async setup(kind: LockKind, secret: string, repeat: string): Promise<{ ok: true } | { error: string }> {
+      if (state !== 'setup') return { error: 'A lock is already set' }
+      const v = validateNewSecret(kind, secret, repeat)
+      if (!v.ok) return { error: v.error }
+      const next = await hashSecret(secret, params, kind)
+      // Atomic and private: temp file at 0600, then rename over lock.json.
+      const tmp = `${path}.tmp`
+      writeFileSync(tmp, JSON.stringify(next), { mode: 0o600 })
+      chmodSync(tmp, 0o600)
+      renameSync(tmp, path)
+      rec = next
+      set('unlocked')
+      return { ok: true }
+    },
+    /** The rate limit lives here: 5 wrong tries, then nothing is checked until the wait is over. */
+    unlock(entry: string): Promise<UnlockResult> {
+      // One attempt at a time, so parallel calls cannot all pass the wait check before the counter moves.
+      const run = queue.then(() => attempt(entry))
+      queue = run.catch(() => undefined)
+      return run
+    },
+    lock(): void {
+      if (state === 'unlocked' && rec) set('locked')
+    }
+  }
+
+  async function attempt(entry: string): Promise<UnlockResult> {
+    if (state === 'unlocked') return { result: 'ok' }
+    if (state !== 'locked' || !rec) return { result: 'wrong' }
+    if (now() < waitUntil) return { result: 'wait', until: waitUntil }
+    if (await verifySecret(String(entry ?? ''), rec)) {
+      fails = 0
+      set('unlocked')
+      return { result: 'ok' }
+    }
+    if (++fails >= MAX_TRIES) {
+      fails = 0
+      waitUntil = now() + WAIT_MS
+      return { result: 'wait', until: waitUntil }
+    }
+    return { result: 'wrong' }
+  }
+}
+
+export type Lock = ReturnType<typeof createLock>

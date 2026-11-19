@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import AddAccount from './AddAccount.vue'
 import AsleepPanel from './AsleepPanel.vue'
+import LockScreen from './LockScreen.vue'
+import SetupScreen from './SetupScreen.vue'
 import Sidebar from './Sidebar.vue'
 
 const accounts = ref<AccountRow[]>([])
@@ -13,18 +15,42 @@ const asleepIds = computed(() => Object.keys(sleep.value).filter((id) => !sleep.
 const sleeping = computed(() => accounts.value.find((a) => a.id === selectedId.value && sleep.value[a.id]))
 const adding = ref(false)
 const addError = ref('')
+// Main owns the lock. The renderer asks for account data only while main says 'unlocked', and drops all of it on lock.
+const lockInfo = ref<LockInfo>({ state: 'locked' })
+const ready = ref(false)
 
-onMounted(async () => {
+async function loadAccounts() {
   const s = await window.guisedesk.state()
   accounts.value = s.accounts
   selectedId.value = s.selectedId
   counts.value = await window.guisedesk.unread()
   sleep.value = await window.guisedesk.sleep()
+}
+
+function wipe() {
+  accounts.value = []
+  selectedId.value = undefined
+  counts.value = {}
+  sleep.value = {}
+  adding.value = false
+  addError.value = ''
+}
+
+async function apply(info: LockInfo) {
+  lockInfo.value = info
+  if (info.state === 'unlocked') await loadAccounts()
+  else wipe()
+  ready.value = true
+}
+
+onMounted(async () => {
+  window.guisedesk.onLock((info) => void apply(info))
   window.guisedesk.onSleep((s) => (sleep.value = s))
   window.guisedesk.onUnread((c) => (counts.value = { ...c }))
   window.guisedesk.onSelected((id) => (selectedId.value = id))
+  await apply(await window.guisedesk.lockState())
   // Dev-only: the screenshot hook opens the dialog via ?dialog=add.
-  if (new URLSearchParams(location.search).get('dialog') === 'add') openAdd()
+  if (lockInfo.value.state === 'unlocked' && new URLSearchParams(location.search).get('dialog') === 'add') openAdd()
 })
 
 function select(id: string) {
@@ -59,7 +85,10 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
 </script>
 
 <template>
-  <div class="shell">
+  <template v-if="!ready"></template>
+  <SetupScreen v-else-if="lockInfo.state === 'setup'" />
+  <LockScreen v-else-if="lockInfo.state === 'locked'" :kind="lockInfo.kind ?? 'pin'" :pin-length="lockInfo.pinLength" :wait-until="lockInfo.waitUntil" />
+  <div v-else class="shell">
     <Sidebar :accounts="accounts" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" @select="select" @add="openAdd" @mute="mute" />
     <main class="main">
       <AsleepPanel v-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />

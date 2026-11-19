@@ -27,6 +27,11 @@ if (service) {
   )
   webFrame.executeJavaScript(SHIM).catch(() => {})
 } else contextBridge.exposeInMainWorld('guisedesk', {
+  lockState: () => ipcRenderer.invoke('lock:state'),
+  onLock: (cb: (info: unknown) => void) => ipcRenderer.on('lock:changed', (_e, info) => cb(info)),
+  unlock: (entry: string) => ipcRenderer.invoke('lock:unlock', entry),
+  setupLock: (kind: string, secret: string, repeat: string) => ipcRenderer.invoke('lock:setup', kind, secret, repeat),
+  lock: () => ipcRenderer.send('lock:lock'),
   state: () => ipcRenderer.invoke('accounts:state'),
   unread: () => ipcRenderer.invoke('unread:get'),
   onUnread: (cb: (counts: Record<string, number>) => void) =>

@@ -111,3 +111,28 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .asleep .bigav .svc svg, .asleep .bigav .svc img { width: 14px; height: 14px; }
 .asleep h2 { margin: 0 0 6px; font-size: 21px; font-weight: 800; }
 .asleep p { margin: 0 0 22px; color: var(--muted); }
+
+/* Lock and setup screens (frame 6). The keypad keeps its v4 size: the compact block does not shrink it. */
+.lockv { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; background: var(--win); z-index: 30; }
+.lockv .brand { justify-content: center; margin: 0 0 6px; font-size: 24px; }
+.dots { display: flex; gap: 14px; justify-content: center; margin: 30px 0 26px; }
+.dots i { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 2px #ffffff40; display: block; }
+.dots i.f { background: var(--text); box-shadow: none; }
+.pad { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px; justify-content: center; }
+.pad button { height: 72px; padding: 0; border-radius: 50%; display: grid; place-items: center; font-size: 22px; font-weight: 600; background: transparent; border: 1px solid #ffffff18; }
+.pad button:hover:not(:disabled) { background: var(--raise); }
+.pad button.gh { border: none; font-size: 12px; font-weight: 700; color: var(--muted); }
+.pad button:disabled, .pw .btn:disabled, .pw .inp:disabled { opacity: 0.4; cursor: default; }
+.lockv .wait { margin-top: 22px; font-size: 12px; font-weight: 600; color: var(--accent); }
+.lockv .pw { width: 280px; margin: 30px auto 0; }
+.lockv .pw .inp { text-align: center; margin-bottom: 12px; }
+.lockv .pwbtns { display: flex; justify-content: center; gap: 10px; }
+.lockv.shake > div { animation: gd-shake 0.4s; }
+@keyframes gd-shake { 20%, 60% { transform: translateX(-10px); } 40%, 80% { transform: translateX(10px); } }
+.lockv.setup form { width: 280px; margin: 0 auto; }
+.lockv.setup h2 { margin: 18px 0 6px; font-size: 21px; font-weight: 800; }
+.lockv.setup .hint { margin-bottom: 18px; }
+.lockv.setup .setbtn { width: 100%; justify-content: center; margin-top: 4px; }
+.seg { display: inline-flex; margin-bottom: 16px; border-radius: 8px; border: 1px solid #ffffff18; overflow: hidden; }
+.seg span { padding: 4px 14px; font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.seg span.sel { background: var(--text); color: var(--win); }

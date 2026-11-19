@@ -39,6 +39,8 @@ describe('App asleep panel', () => {
     let push: (s: Record<string, { minutes: number; waking: boolean }>) => void = () => {}
     const select = (await import('vitest')).vi.fn()
     ;(window as unknown as { guisedesk: unknown }).guisedesk = {
+      lockState: async () => ({ state: 'unlocked' }),
+      onLock: () => {},
       state: async () => ({ accounts: [ig], selectedId: 'ig1' }),
       unread: async () => ({}),
       onUnread: () => {},

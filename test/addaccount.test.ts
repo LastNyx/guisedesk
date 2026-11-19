@@ -61,10 +61,12 @@ describe('AddAccount dialog', () => {
 
 describe('App add flow', () => {
   const acc = (id: string, label: string, order: number) => ({ id, serviceId: 'whatsapp', label, colour: '#6d5bd0', order })
-  let bridge: { state: ReturnType<typeof vi.fn>; sleep: unknown; onSleep: unknown; select: ReturnType<typeof vi.fn>; dialog: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; unread: ReturnType<typeof vi.fn>; onUnread: ReturnType<typeof vi.fn>; onSelected: ReturnType<typeof vi.fn> }
+  let bridge: { lockState: unknown; onLock: unknown; state: ReturnType<typeof vi.fn>; sleep: unknown; onSleep: unknown; select: ReturnType<typeof vi.fn>; dialog: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; unread: ReturnType<typeof vi.fn>; onUnread: ReturnType<typeof vi.fn>; onSelected: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
     bridge = {
+      lockState: async () => ({ state: 'unlocked' }),
+      onLock: vi.fn(),
       state: vi.fn(async () => ({ accounts: [acc('a1', 'Personal', 0)], selectedId: 'a1' })),
       unread: vi.fn(async () => ({})),
       onUnread: vi.fn(),
