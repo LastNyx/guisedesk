@@ -1,0 +1,55 @@
+/* D23 tokens: flat dark, no gradients or glows. Fonts are bundled, never remote. */
+:root {
+  --bg: #0c0c11;
+  --win: #15151c;
+  --side: #111117;
+  --card: #1b1b23;
+  --raise: #22222c;
+  --line: #ffffff0f;
+  --text: #ededf2;
+  --muted: #8b8b99;
+  --dim: #5c5c6a;
+  --accent: #e5383b;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app { height: 100%; margin: 0; }
+
+body {
+  font: 500 14px/1.45 'Montserrat', system-ui, sans-serif;
+  color: var(--text);
+  background: var(--win);
+}
+
+.shell { display: flex; height: 100%; background: var(--win); }
+
+.side {
+  width: 268px;
+  flex: none;
+  background: var(--side);
+  padding: 28px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+}
+
+.brand { font-weight: 800; font-size: 18px; margin: 0 8px 28px; }
+
+.sec {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  margin: 18px 8px 8px;
+  text-transform: uppercase;
+}
+
+.main { flex: 1; min-width: 0; padding: 24px 28px 28px; display: flex; }
+
+.panel {
+  flex: 1;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
