@@ -248,6 +248,7 @@ function createWindow(): BrowserWindow {
     backgroundColor: '#15151c',
     autoHideMenuBar: true,
     title: 'GuiseDesk',
+    icon: join(__dirname, '../../resources/icon.png'),
     // Started on login (--hidden): stay in the tray. The lock still starts locked.
     show: !startsHidden(process.argv),
     webPreferences: {
@@ -329,7 +330,7 @@ function createWindow(): BrowserWindow {
   ipcMain.removeAllListeners('idle:touch')
   ipcMain.on('idle:touch', (e) => (fromApp(e) || owner.has(e.sender.id)) && triggers.touch())
   // Settings > Lock, Notifications, General. All behind the guard; the idle choice reaches the running timer.
-  const autostartOpts = () => ({ env: process.env, home: homedir(), execPath: process.execPath, appPath: app.getAppPath() })
+  const autostartOpts = () => ({ env: process.env, home: homedir(), appPath: app.getAppPath() })
   gipc.handle('prefs:get', (e: { sender: { id: number } }) =>
     fromApp(e) ? { idleLock: loadIdleMinutes(dir), dnd, startOnLogin: isAutostart(autostartOpts()) } : undefined
   )

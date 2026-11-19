@@ -5,7 +5,6 @@ import { dirname, join } from 'node:path'
 export interface AutostartOpts {
   env: Record<string, string | undefined>
   home: string
-  execPath: string
   appPath: string
 }
 
@@ -17,8 +16,8 @@ export const startsHidden = (argv: string[]): boolean => argv.includes('--hidden
 
 const q = (s: string) => (/[\s"'`$\\<>~|&;*?#()]/.test(s) ? `"${s.replace(/(["`$\\])/g, '\\$1')}"` : s)
 
-/** The one place the launch command is built; packaging (ticket 14) points it at the launcher. */
-export const autostartExec = (execPath: string, appPath: string): string => `${q(execPath)} ${q(appPath)} --hidden`
+/** The one place the launch command is built: the launcher script in the app's own root (app.getAppPath()). */
+export const autostartExec = (appPath: string): string => `${q(join(appPath, 'launchers', 'guisedesk.sh'))} --hidden`
 
 export const isAutostart = (o: AutostartOpts): boolean => existsSync(autostartPath(o.env, o.home))
 
@@ -31,6 +30,6 @@ export function setAutostart(o: AutostartOpts, on: boolean): void {
   mkdirSync(dirname(file), { recursive: true })
   writeFileSync(
     file,
-    `[Desktop Entry]\nType=Application\nName=GuiseDesk\nComment=Chat accounts in one window\nExec=${autostartExec(o.execPath, o.appPath)}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`
+    `[Desktop Entry]\nType=Application\nName=GuiseDesk\nComment=Chat accounts in one window\nExec=${autostartExec(o.appPath)}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`
   )
 }

@@ -6,6 +6,7 @@ import LogoGlyph from './LogoGlyph.vue'
 import { logoStyle } from './logos'
 import { initials } from './initials'
 import { formatCount } from '../../main/unread'
+import { version } from '../../../package.json'
 import { sideWidth } from '../../main/layout'
 
 interface Acc {
@@ -62,7 +63,7 @@ function pickSettings() {
       </div>
     </div>
     <div class="grow"></div>
-    <div class="foot"><button class="ib tgl" :title="collapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'" :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'" @click="emit('toggle')"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></button></div>
+    <div class="foot"><button class="ib tgl" :title="collapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'" :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'" @click="emit('toggle')"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></button><span v-if="!collapsed" class="ver">GuiseDesk v{{ version }}</span></div>
     <template v-if="ctx">
       <div class="ctx-veil" @click="ctx = undefined" @contextmenu.prevent="ctx = undefined"></div>
       <div class="ctx" :style="{ left: ctx.x + 'px', top: ctx.y + 'px' }"><div class="mi" @click="pick">{{ ctx.muted ? 'Unmute' : 'Mute' }}</div><div class="mi" @click="pickSettings">Account settings</div></div>

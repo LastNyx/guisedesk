@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { autostartExec, autostartPath, isAutostart, setAutostart, startsHidden } from '../src/main/autostart'
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'gd-xdg-'))
-const o = (xdg: string) => ({ env: { XDG_CONFIG_HOME: xdg }, home: '/nonexistent-home', execPath: '/opt/gd dir/electron', appPath: '/opt/gd dir/app' })
+const o = (xdg: string) => ({ env: { XDG_CONFIG_HOME: xdg }, home: '/nonexistent-home', appPath: '/opt/gd dir/app' })
 
 describe('Start on login (XDG autostart)', () => {
   it('creates guisedesk.desktop with a --hidden Exec, and removes it again', () => {
@@ -18,7 +18,7 @@ describe('Start on login (XDG autostart)', () => {
     const text = readFileSync(file, 'utf8')
     expect(text).toContain('[Desktop Entry]')
     expect(text).toContain('Name=GuiseDesk')
-    expect(text).toContain(`Exec=${autostartExec('/opt/gd dir/electron', '/opt/gd dir/app')}`)
+    expect(text).toContain(`Exec=${autostartExec('/opt/gd dir/app')}`)
     expect(text).toMatch(/Exec=.*--hidden/)
     setAutostart(o(xdg), false)
     expect(existsSync(file)).toBe(false)
@@ -26,8 +26,9 @@ describe('Start on login (XDG autostart)', () => {
     expect(() => setAutostart(o(xdg), false)).not.toThrow()
   })
 
-  it('quotes paths with spaces in Exec', () => {
-    expect(autostartExec('/opt/gd dir/electron', '/opt/gd dir/app')).toBe('"/opt/gd dir/electron" "/opt/gd dir/app" --hidden')
+  it('points Exec at launchers/guisedesk.sh in the app root, quoting paths with spaces', () => {
+    expect(autostartExec('/opt/gd dir/app')).toBe('"/opt/gd dir/app/launchers/guisedesk.sh" --hidden')
+    expect(autostartExec('/home/u/guisedesk-app')).toBe('/home/u/guisedesk-app/launchers/guisedesk.sh --hidden')
   })
 
   it('uses XDG_CONFIG_HOME, else ~/.config', () => {

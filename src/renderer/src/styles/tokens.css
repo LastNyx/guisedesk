@@ -43,6 +43,7 @@ body {
 .brand .bn { flex: 1; }
 .grow { flex: 1; }
 .foot { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 0 8px; }
+.foot .ver { font-size: 11px; color: var(--dim); }
 .side.mini { padding: 14px 8px 12px; align-items: center; }
 .side.mini .brand { flex-direction: column; gap: 10px; margin: 0 0 8px; }
 .side.mini .brand .ib + .ib { margin-left: 0; }

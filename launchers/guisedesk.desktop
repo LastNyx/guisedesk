@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GuiseDesk
+Comment=Chat and social accounts in one window
+Exec=@APPDIR@/launchers/guisedesk.sh
+Icon=@APPDIR@/resources/icon.png
+Path=@APPDIR@
+Terminal=false
+Categories=Network;InstantMessaging;
+StartupWMClass=guisedesk

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import { version } from '../package.json'
 import Sidebar from '../src/renderer/src/Sidebar.vue'
 
 const acc = (id: string, serviceId: string, label: string, order: number) => ({
@@ -116,6 +117,13 @@ describe('Sidebar', () => {
       await c.find('.foot .tgl').trigger('click')
       expect(c.emitted('toggle')).toHaveLength(1)
     })
+  })
+
+  it('shows GuiseDesk v<package.json version> in the footer in full mode only', () => {
+    expect(version).toBe('0.1.0')
+    expect(w.find('.foot .ver').text()).toBe('GuiseDesk v0.1.0')
+    const c = mount(Sidebar, { props: { accounts, collapsed: true } })
+    expect(c.find('.foot .ver').exists()).toBe(false)
   })
 
   it('full mode is 232px wide with the brand mark next to the name and a collapse button', () => {
