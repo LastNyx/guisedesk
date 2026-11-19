@@ -13,8 +13,8 @@ interface Acc {
   id: string; serviceId: string; label: string; colour: string; order: number; muted?: boolean
   custom?: { name: string; url: string; icon?: string }
 }
-const props = defineProps<{ accounts: Acc[]; selectedId?: string; counts?: Record<string, number>; asleep?: string[]; collapsed?: boolean }>()
-const emit = defineEmits<{ select: [id: string]; add: []; settings: []; account: [id: string]; mute: [id: string, muted: boolean]; sleep: [id: string]; toggle: []; reorder: [ids: string[]] }>()
+const props = defineProps<{ accounts: Acc[]; selectedId?: string; counts?: Record<string, number>; asleep?: string[]; collapsed?: boolean; update?: boolean }>()
+const emit = defineEmits<{ select: [id: string]; add: []; settings: []; account: [id: string]; mute: [id: string, muted: boolean]; sleep: [id: string]; toggle: []; update: []; reorder: [ids: string[]] }>()
 
 const groups = computed(() => {
   const sorted = [...props.accounts].sort((a, b) => a.order - b.order)
@@ -107,7 +107,7 @@ function pickSettings() {
       </div>
     </div>
     <div class="grow"></div>
-    <div class="foot"><button class="ib tgl" :title="collapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'" :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'" @click="emit('toggle')"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></button><span v-if="!collapsed" class="ver">GuiseDesk v{{ version }}</span></div>
+    <div class="foot"><button class="ib tgl" :title="collapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'" :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'" @click="emit('toggle')"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg><i v-if="update && collapsed" class="upd dot" title="Update available" @click.stop="emit('update')"></i></button><span v-if="!collapsed" class="ver">GuiseDesk v{{ version }}</span><button v-if="update && !collapsed" class="upd" title="Update available" @click="emit('update')">Update</button></div>
     <template v-if="ctx">
       <div class="ctx-veil" @click="ctx = undefined" @contextmenu.prevent="ctx = undefined"></div>
       <div class="ctx" :style="{ left: ctx.x + 'px', top: ctx.y + 'px' }"><div class="mi" @click="pick">{{ ctx.muted ? 'Unmute' : 'Mute' }}</div><div v-if="!ctx.asleep" class="mi" @click="pickSleep">Sleep now</div><div class="mi" @click="pickSettings">Account settings</div></div>

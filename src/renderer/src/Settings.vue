@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import SettingsGeneral from './SettingsGeneral.vue'
 import SettingsLock from './SettingsLock.vue'
 import SettingsNotifications from './SettingsNotifications.vue'
 import SettingsServices from './SettingsServices.vue'
 
-defineProps<{ accounts: AccountRow[]; disabled: string[] }>()
-const emit = defineEmits<{ back: []; toggle: [serviceId: string, enabled: boolean]; open: [id: string]; unmute: [id: string]; reset: [] }>()
+const props = defineProps<{ accounts: AccountRow[]; disabled: string[]; update?: UpdateInfo; tab?: string }>()
+const emit = defineEmits<{ back: []; toggle: [serviceId: string, enabled: boolean]; open: [id: string]; unmute: [id: string]; reset: []; check: []; apply: [] }>()
 
 const TABS = ['Services', 'Lock', 'Notifications', 'General']
 // Dev-only: the screenshot hook opens a tab with ?tab=Lock.
 const first = new URLSearchParams(location.search).get('tab') ?? ''
-const tab = ref(TABS.includes(first) ? first : 'Services')
+const tab = ref(TABS.includes(props.tab ?? '') ? props.tab! : TABS.includes(first) ? first : 'Services')
+watch(() => props.tab, (t) => t && TABS.includes(t) && (tab.value = t))
 </script>
 
 <template>
@@ -21,6 +22,6 @@ const tab = ref(TABS.includes(first) ? first : 'Services')
     <SettingsServices v-if="tab === 'Services'" :accounts="accounts" :disabled="disabled" @toggle="(s, on) => emit('toggle', s, on)" @open="(id) => emit('open', id)" />
     <SettingsLock v-else-if="tab === 'Lock'" @reset="emit('reset')" />
     <SettingsNotifications v-else-if="tab === 'Notifications'" :accounts="accounts" @unmute="(id) => emit('unmute', id)" />
-    <SettingsGeneral v-else />
+    <SettingsGeneral v-else :update="update ?? { state: 'checking' }" @check="emit('check')" @apply="emit('apply')" />
   </section>
 </template>

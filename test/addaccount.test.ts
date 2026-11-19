@@ -61,7 +61,7 @@ describe('AddAccount dialog', () => {
 
 describe('App add flow', () => {
   const acc = (id: string, label: string, order: number) => ({ id, serviceId: 'whatsapp', label, colour: '#6d5bd0', order })
-  let bridge: { lockState: unknown; onLock: unknown; state: ReturnType<typeof vi.fn>; sleep: unknown; onSleep: unknown; onSidebar: unknown; select: ReturnType<typeof vi.fn>; dialog: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; unread: ReturnType<typeof vi.fn>; onUnread: ReturnType<typeof vi.fn>; onSelected: ReturnType<typeof vi.fn>; onOpenSettings: ReturnType<typeof vi.fn> }
+  let bridge: { lockState: unknown; onLock: unknown; state: ReturnType<typeof vi.fn>; sleep: unknown; onSleep: unknown; onSidebar: unknown; onUpdate: unknown; updateState: unknown; select: ReturnType<typeof vi.fn>; dialog: ReturnType<typeof vi.fn>; add: ReturnType<typeof vi.fn>; unread: ReturnType<typeof vi.fn>; onUnread: ReturnType<typeof vi.fn>; onSelected: ReturnType<typeof vi.fn>; onOpenSettings: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
     bridge = {
@@ -75,6 +75,8 @@ describe('App add flow', () => {
       sleep: async () => ({}),
       onSleep: vi.fn(),
       onSidebar: vi.fn(),
+      onUpdate: () => {},
+      updateState: async () => ({ state: 'none' }),
       select: vi.fn(),
       dialog: vi.fn(),
       add: vi.fn(async () => ({

@@ -71,6 +71,10 @@ if (service) {
   setPolicy: (id: string, policy: string) => ipcRenderer.invoke('accounts:policy', id, policy),
   logout: (id: string) => ipcRenderer.invoke('accounts:logout', id),
   remove: (id: string) => ipcRenderer.invoke('accounts:remove', id),
+  updateState: () => ipcRenderer.invoke('update:state'),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateApply: () => ipcRenderer.invoke('update:apply'),
+  onUpdate: (cb: (u: unknown) => void) => ipcRenderer.on('update:changed', (_e, u) => cb(u)),
   add: (input: unknown) => ipcRenderer.invoke('accounts:add', input),
   onSelected: (cb: (id: string) => void) => ipcRenderer.on('accounts:selected', (_e, id) => cb(id))
 })

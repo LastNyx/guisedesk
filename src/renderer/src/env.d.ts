@@ -31,6 +31,13 @@ interface LockInfo {
   waitUntil?: number
 }
 
+/** Update status (D29). 'checking' is the state before the first check finishes. */
+interface UpdateInfo {
+  state: 'checking' | 'disabled' | 'none' | 'available' | 'error'
+  latest?: string
+  message?: string
+}
+
 interface Window {
   guisedesk: {
     /** Lock state from main (the source of truth). Account data is only available while 'unlocked'. */
@@ -83,6 +90,11 @@ interface Window {
     logout(id: string): Promise<Snapshot>
     /** Deletes the account and its saved data. */
     remove(id: string): Promise<Snapshot>
+    /** Update status from main, a manual check, applying the update (copies update.sh, spawns it, quits), and pushes (D29). */
+    updateState(): Promise<UpdateInfo>
+    updateCheck(): Promise<UpdateInfo>
+    updateApply(): Promise<boolean>
+    onUpdate(cb: (u: UpdateInfo) => void): void
     add(input: {
       serviceId: string
       label: string

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import AddAccount from './AddAccount.vue'
 import AccountSheet from './AccountSheet.vue'
 import AsleepPanel from './AsleepPanel.vue'
@@ -35,6 +35,9 @@ const lockInfo = ref<LockInfo>({ state: 'locked' })
 const ready = ref(false)
 // Forgot on the lock screen leads to the reset confirm screen.
 const resetting = ref(false)
+// Update status from main (D29); the sidebar pill and Settings > General show it. The pill opens General.
+const update = ref<UpdateInfo>({ state: 'checking' })
+const settingsTab = ref<string | undefined>()
 
 async function loadAccounts() {
   const s = await window.guisedesk.state()
@@ -44,6 +47,7 @@ async function loadAccounts() {
   collapsed.value = !!s.sidebarCollapsed
   counts.value = await window.guisedesk.unread()
   sleep.value = await window.guisedesk.sleep()
+  update.value = await window.guisedesk.updateState()
 }
 
 function wipe() {
@@ -70,6 +74,7 @@ async function apply(info: LockInfo) {
 onMounted(async () => {
   window.guisedesk.onLock((info) => void apply(info))
   window.guisedesk.onSleep((s) => (sleep.value = s))
+  window.guisedesk.onUpdate((u) => (update.value = u))
   window.guisedesk.onSidebar((c) => (collapsed.value = c))
   window.guisedesk.onUnread((c) => (counts.value = { ...c }))
   window.guisedesk.onSelected((id) => {
@@ -129,8 +134,24 @@ function openSettings() {
   window.guisedesk.dialog(true)
 }
 
+function openUpdates() {
+  settingsTab.value = undefined
+  openSettings()
+  void nextTick(() => (settingsTab.value = 'General'))
+}
+
+async function checkUpdate() {
+  update.value = { state: 'checking' }
+  update.value = await window.guisedesk.updateCheck()
+}
+
+function applyUpdate() {
+  void window.guisedesk.updateApply()
+}
+
 function closeSettings() {
   sheetId.value = undefined
+  settingsTab.value = undefined
   if (!settingsOpen.value) return
   settingsOpen.value = false
   window.guisedesk.dialog(false)
@@ -185,10 +206,10 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
   <ResetScreen v-else-if="resetting" @cancel="resetting = false" />
   <LockScreen v-else-if="lockInfo.state === 'locked'" :kind="lockInfo.kind ?? 'pin'" :pin-length="lockInfo.pinLength" :wait-until="lockInfo.waitUntil" @forgot="resetting = true" />
   <div v-else class="shell">
-    <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
+    <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" :update="update.state === 'available'" @update="openUpdates" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
     <main class="main">
       <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" />
-      <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" />
+      <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" :update="update" :tab="settingsTab" @check="checkUpdate" @apply="applyUpdate" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" />
       <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
       <div v-else class="panel"></div>
     </main>

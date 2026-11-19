@@ -159,6 +159,8 @@ describe('App while locked', () => {
     sleep: vi.fn(async () => ({})),
     onSleep: vi.fn(),
     onSidebar: vi.fn(),
+    onUpdate: vi.fn(),
+    updateState: vi.fn(async () => ({ state: 'none' })),
     select: vi.fn(),
     dialog: vi.fn()
   })
@@ -208,6 +210,8 @@ describe('Reset screen', () => {
       onLock: vi.fn(),
       onSleep: vi.fn(),
       onSidebar: vi.fn(),
+      onUpdate: vi.fn(),
+      updateState: vi.fn(async () => ({ state: 'none' })),
       onUnread: vi.fn(),
       onSelected: vi.fn(),
       onOpenSettings: vi.fn()

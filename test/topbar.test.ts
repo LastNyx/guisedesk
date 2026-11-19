@@ -75,6 +75,8 @@ async function app(over: Record<string, unknown> = {}, lock = 'unlocked') {
     sleep: async () => ({}),
     onSleep: () => {},
     onSidebar: () => {},
+    onUpdate: () => {},
+    updateState: async () => ({ state: 'none' }),
     select: vi.fn(),
     dialog: vi.fn(),
     lock: vi.fn(),

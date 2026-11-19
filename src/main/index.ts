@@ -1,5 +1,6 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { spawn } from 'node:child_process'
+import { copyFileSync, mkdirSync, mkdtempSync, openSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { dataDir, devUnlocked } from './paths'
@@ -21,6 +22,8 @@ import { wireTriggers } from './triggers'
 import { resetData, RESET_WORD } from './reset'
 import { isAutostart, setAutostart, startsHidden } from './autostart'
 import { applyIdle } from './prefs'
+import { checkForUpdate, realRun, type UpdateInfo } from './updater'
+import { version } from '../../package.json'
 import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
@@ -329,6 +332,32 @@ function createWindow(): BrowserWindow {
   setInterval(triggers.check, 10_000).unref()
   ipcMain.removeAllListeners('idle:touch')
   ipcMain.on('idle:touch', (e) => (fromApp(e) || owner.has(e.sender.id)) && triggers.touch())
+  // Self-update (D29): check once the window is up and every 12 h; apply hands over to a temp copy of update.sh and quits.
+  const root = app.getAppPath()
+  let update: UpdateInfo | { state: 'checking' } = { state: 'checking' }
+  const setUpdate = (u: UpdateInfo) => {
+    update = u
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('update:changed', u)
+  }
+  const runCheck = async () => {
+    const u = await checkForUpdate({ root, current: version, env: process.env, run: realRun })
+    setUpdate(u)
+    return u
+  }
+  win.webContents.once('did-finish-load', () => void runCheck())
+  setInterval(() => void runCheck(), 12 * 3600_000).unref()
+  gipc.handle('update:state', (e: { sender: { id: number } }) => (fromApp(e) ? update : undefined))
+  gipc.handle('update:check', (e: { sender: { id: number } }) => (fromApp(e) ? runCheck() : undefined))
+  gipc.handle('update:apply', (e: { sender: { id: number } }) => {
+    if (!fromApp(e) || update.state !== 'available' || !('latest' in update) || !update.latest) return false
+    // update.sh is copied first: the checkout rewrites launchers/update.sh while the script runs.
+    const copy = join(mkdtempSync(join(tmpdir(), 'guisedesk-update-')), 'update.sh')
+    copyFileSync(join(root, 'launchers', 'update.sh'), copy)
+    const log = openSync(join(dir, 'update.log'), 'a')
+    spawn('sh', [copy, update.latest, String(process.pid), root, join(dir, 'update.log')], { detached: true, stdio: ['ignore', log, log] }).unref()
+    app.quit()
+    return true
+  })
   // Settings > Lock, Notifications, General. All behind the guard; the idle choice reaches the running timer.
   const autostartOpts = () => ({ env: process.env, home: homedir(), appPath: app.getAppPath() })
   gipc.handle('prefs:get', (e: { sender: { id: number } }) =>

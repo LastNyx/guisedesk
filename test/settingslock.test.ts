@@ -138,7 +138,7 @@ describe('SettingsNotifications', () => {
 describe('SettingsGeneral', () => {
   it('Start on login is off by default and the switch sends the change to main', async () => {
     install()
-    const w = mount(SettingsGeneral)
+    const w = mount(SettingsGeneral, { props: { update: { state: 'none' } } })
     await flushPromises()
     expect(w.find('.tg').classes()).not.toContain('on')
     await w.find('.tg').trigger('click')
@@ -149,7 +149,7 @@ describe('SettingsGeneral', () => {
 
   it('shows it on when main says it is set', async () => {
     install({ prefs: vi.fn(async () => ({ idleLock: 10, dnd: false, startOnLogin: true })) })
-    const w = mount(SettingsGeneral)
+    const w = mount(SettingsGeneral, { props: { update: { state: 'none' } } })
     await flushPromises()
     expect(w.find('.tg').classes()).toContain('on')
   })
@@ -166,6 +166,8 @@ describe('Settings tabs in the app', () => {
       sleep: vi.fn(async () => ({})),
       onSleep: vi.fn(),
       onSidebar: vi.fn(),
+      onUpdate: vi.fn(),
+      updateState: vi.fn(async () => ({ state: 'none' })),
       onOpenSettings: vi.fn(),
       dialog: vi.fn()
     })

@@ -212,7 +212,9 @@ describe('App sidebar state', () => {
       select: () => {},
       dialog: () => {},
       setSidebar,
-      onSidebar: (cb: typeof push) => (push = cb)
+      onSidebar: (cb: typeof push) => (push = cb),
+      onUpdate: () => {},
+      updateState: async () => ({ state: 'none' })
     }
     const a = mount(App)
     await flushPromises()
