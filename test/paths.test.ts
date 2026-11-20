@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dataDir, devUnlocked } from '../src/main/paths'
+import { appRoot, dataDir, devUnlocked } from '../src/main/paths'
 
 describe('dataDir', () => {
   it('GUISEDESK_DATA wins over dev and default', () => {
@@ -29,5 +29,19 @@ describe('devUnlocked', () => {
     expect(devUnlocked(env, '/home/u/.config/GuiseDesk', '/home/u')).toBe(false)
     expect(devUnlocked(env, '/home/u/.config/GuiseDesk/', '/home/u')).toBe(false)
     expect(devUnlocked(env, '/home/u/.config/../.config/GuiseDesk', '/home/u')).toBe(false)
+  })
+})
+
+describe('appRoot', () => {
+  const has = (...files: string[]) => (p: string) => files.includes(p)
+  const marks = (root: string) => has(`${root}/package.json`, `${root}/launchers/guisedesk.sh`)
+  it('walks up from out/main to the checkout', () => {
+    expect(appRoot('/opt/gd/out/main', marks('/opt/gd'))).toBe('/opt/gd')
+  })
+  it('an app root stays itself', () => {
+    expect(appRoot('/opt/gd', marks('/opt/gd'))).toBe('/opt/gd')
+  })
+  it('falls back to appPath when nothing matches', () => {
+    expect(appRoot('/opt/gd/out/main', () => false)).toBe('/opt/gd/out/main')
   })
 })

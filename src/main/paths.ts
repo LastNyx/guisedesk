@@ -1,4 +1,4 @@
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 export function dataDir(env: Record<string, string | undefined>, home: string): string {
   if (env.GUISEDESK_DATA) return env.GUISEDESK_DATA
@@ -11,4 +11,15 @@ export function devUnlocked(env: Record<string, string | undefined>, dir: string
   if (env.GUISEDESK_DEV_UNLOCKED !== '1' || !env.GUISEDESK_DATA) return false
   if (env.GUISEDESK_DEV !== '1' && !env.GUISEDESK_SHOT) return false
   return resolve(dir) !== resolve(join(home, '.config', 'GuiseDesk'))
+}
+
+/** app.getAppPath() is <root>/out/main; walk up to the checkout that holds package.json and launchers/guisedesk.sh. */
+export function appRoot(appPath: string, exists: (p: string) => boolean): string {
+  let dir = appPath
+  for (;;) {
+    if (exists(join(dir, 'package.json')) && exists(join(dir, 'launchers', 'guisedesk.sh'))) return dir
+    const up = dirname(dir)
+    if (up === dir) return appPath
+    dir = up
+  }
 }

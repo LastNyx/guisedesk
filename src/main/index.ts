@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, writeFileSy
 import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
-import { dataDir, devUnlocked } from './paths'
+import { appRoot, dataDir, devUnlocked } from './paths'
 import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setServiceEnabled, setZoom, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
@@ -491,7 +491,7 @@ function createWindow(): BrowserWindow {
   ipcMain.removeAllListeners('idle:touch')
   ipcMain.on('idle:touch', (e) => (fromApp(e) || owner.has(e.sender.id)) && triggers.touch())
   // Self-update (D29): check once the window is up and every 12 h; apply hands over to a temp copy of update.sh and quits.
-  const root = app.getAppPath()
+  const root = appRoot(app.getAppPath(), existsSync)
   let update: UpdateInfo | { state: 'checking' } = { state: 'checking' }
   const setUpdate = (u: UpdateInfo) => {
     update = u
@@ -544,7 +544,7 @@ function createWindow(): BrowserWindow {
     return picked
   })
   // Settings > Lock, Notifications, General. All behind the guard; the idle choice reaches the running timer.
-  const autostartOpts = () => ({ env: process.env, home: homedir(), appPath: app.getAppPath() })
+  const autostartOpts = () => ({ env: process.env, home: homedir(), appPath: appRoot(app.getAppPath(), existsSync) })
   gipc.handle('prefs:get', (e: { sender: { id: number } }) =>
     fromApp(e) ? { idleLock: loadIdleMinutes(dir), dnd, startOnLogin: isAutostart(autostartOpts()) } : undefined
   )
