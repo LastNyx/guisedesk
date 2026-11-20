@@ -11,6 +11,7 @@ import { cacheFavicon, readIcon, type Fetcher } from './favicon'
 import { validateNewAccount } from './validate'
 import { presetFor, CHROME_UA } from './presets'
 import { redirectAllowed, route } from './links'
+import { createPopups, openTarget } from './popups'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
@@ -28,7 +29,7 @@ import { buildContextMenu } from './contextmenu'
 import { doneNotice, loadDownloads, saveDownloads, uniquePath } from './downloads'
 import { nextZoom, switchTarget, zoomKey, type KeyInput } from './shortcuts'
 import { sidebarOrder } from './services'
-import { partitionKey, partitionOf } from './sharing'
+import { onPartition, partitionKey, partitionOf } from './sharing'
 import { secondLaunch } from './singleinstance'
 import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
@@ -103,9 +104,13 @@ const fetchSite: Fetcher = async (url) => {
   return bytes.length > 512 * 1024 ? null : { contentType: r.headers.get('content-type') ?? '', bytes }
 }
 
-/** Link policy (D8): in-app loads in this view, never a new window; mailto goes out; the rest is denied or external. */
-function hookLinks(v: WebContentsView, a: Account): void {
-  const wc = v.webContents
+// Popup windows (D37): middle-click / Ctrl+click on a same-service link. Closed on lock, logout, remove and sleep.
+const popups = createPopups<BrowserWindow>((w) => {
+  if (!w.isDestroyed()) w.close()
+})
+
+/** Link rules (D8) shared by a service view and its popups: in-app stays, external goes to the browser, redirects are checked. */
+function hookNav(wc: Electron.WebContents, a: Account): (url: string) => boolean {
   const go = (url: string): boolean => {
     const r = route(url, a)
     if (r.action === 'in-app') {
@@ -115,12 +120,6 @@ function hookLinks(v: WebContentsView, a: Account): void {
     if (r.action === 'external') void shell.openExternal(r.url)
     return false
   }
-  wc.setWindowOpenHandler(({ url }) => {
-    const r = route(url, a)
-    if (r.action === 'in-app') wc.loadURL(r.url)
-    else go(url)
-    return { action: 'deny' }
-  })
   wc.on('will-navigate', (e, url) => {
     if (!go(url)) e.preventDefault()
   })
@@ -131,6 +130,59 @@ function hookLinks(v: WebContentsView, a: Account): void {
     e.preventDefault()
     if (d.open) void shell.openExternal(d.open)
     if (d.load) wc.loadURL(d.load)
+  })
+  return go
+}
+
+/** A normal window on the account's session, no app preload (D37). A same-service window.open inside it loads in itself. */
+function openPopup(a: Account, url: string): void {
+  const w = new BrowserWindow({
+    width: 1000,
+    height: 800,
+    autoHideMenuBar: true,
+    backgroundColor: '#15151c',
+    icon: join(__dirname, '../../resources/icon.png'),
+    webPreferences: { partition: partitionOf(a), sandbox: true, contextIsolation: true, devTools }
+  })
+  w.removeMenu()
+  const wc = w.webContents
+  wc.setUserAgent(presetFor(a.serviceId)?.userAgent ?? CHROME_UA)
+  const go = hookNav(wc, a)
+  wc.setWindowOpenHandler(({ url: u }) => {
+    const r = route(u, a)
+    if (r.action === 'in-app') wc.loadURL(r.url)
+    else go(u)
+    return { action: 'deny' }
+  })
+  hookContextMenu(wc)
+  wc.setZoomLevel(a.zoom ?? 0)
+  wc.on('dom-ready', () => wc.setZoomLevel(a.zoom ?? 0))
+  wc.on('page-title-updated', (_e, title) => w.setTitle(title))
+  wc.on('before-input-event', (e, input) => {
+    hib.touch(a.id)
+    touchIdle()
+    if (input.type !== 'keyDown') return
+    if (input.key === 'Escape' || (input.control && !input.alt && !input.shift && input.key.toLowerCase() === 'w')) {
+      e.preventDefault()
+      w.close()
+    }
+  })
+  popups.add(a.id, w)
+  w.on('closed', () => popups.forget(w))
+  void wc.loadURL(url)
+}
+
+/** Link policy (D8): in-app loads in this view; a tab-style open (D37) gets a popup; mailto goes out; the rest is denied or external. */
+function hookLinks(v: WebContentsView, a: Account): void {
+  const wc = v.webContents
+  hookNav(wc, a)
+  wc.setWindowOpenHandler(({ url, disposition }) => {
+    const r = route(url, a)
+    const target = openTarget(disposition, r.action)
+    if (target === 'popup') openPopup(a, r.url)
+    else if (target === 'same-view') wc.loadURL(r.url)
+    else if (target === 'external') void shell.openExternal(r.url)
+    return { action: 'deny' }
   })
   wc.on('before-input-event', (e, input) => {
     hib.touch(a.id)
@@ -159,8 +211,7 @@ function hookLinks(v: WebContentsView, a: Account): void {
 }
 
 /** Right-click menu (D30): the template builder gives action ids; they map to webContents, clipboard and shell calls here. */
-function hookContextMenu(v: WebContentsView): void {
-  const wc = v.webContents
+function hookContextMenu(wc: Electron.WebContents): void {
   wc.on('context-menu', (_e, p) => {
     const nav = wc.navigationHistory
     const items = buildContextMenu(p, { canGoBack: nav.canGoBack(), canGoForward: nav.canGoForward(), locked: !isUnlocked() })
@@ -233,7 +284,7 @@ function viewFor(a: Account): WebContentsView {
     v.setBorderRadius(VIEW_RADIUS)
     v.webContents.setUserAgent(preset?.userAgent ?? CHROME_UA)
     hookLinks(v, a)
-    hookContextMenu(v)
+    hookContextMenu(v.webContents)
     // Saved zoom (D32): applied now and again after each load (a new origin starts at 100%).
     v.webContents.setZoomLevel(a.zoom ?? 0)
     v.webContents.on('dom-ready', () => v!.webContents.setZoomLevel(owner.get(v!.webContents.id)?.zoom ?? 0))
@@ -303,6 +354,7 @@ function show(win: BrowserWindow, a: Account, push: () => void): void {
 }
 
 function sleepAccount(a: Account, minutes = limitMinutes(a) ?? 0): void {
+  popups.closeFor(a.id)
   const v = views.get(a.id)
   if (v) {
     owner.delete(v.webContents.id)
@@ -562,6 +614,7 @@ function createWindow(): BrowserWindow {
     } else {
       // Views keep running; they just leave the window. The renderer wipes its own account data on 'locked'.
       dialogOpen = false
+      popups.closeAll()
       if (attached) detach(win, attached)
       win.webContents.focus()
     }
@@ -639,6 +692,8 @@ function createWindow(): BrowserWindow {
   gipc.handle('accounts:logout', async (_e: unknown, id: string) => {
     const a = accounts.find((x) => x.id === id)
     if (!a) return snapshot()
+    // A shared login logs out every account on it, so their popups go too.
+    for (const x of onPartition(a, accounts)) popups.closeFor(x.id)
     await logOut(dir, id, {
       clearStorage,
       closeView: () => {},
@@ -651,6 +706,7 @@ function createWindow(): BrowserWindow {
   })
   gipc.handle('accounts:remove', async (_e: unknown, id: string) => {
     if (!accounts.some((a) => a.id === id)) return snapshot()
+    popups.closeFor(id)
     try {
       await removeAccount(dir, id, {
         clearStorage,
