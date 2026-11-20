@@ -45,6 +45,10 @@ describe('Settings > General Updates card', () => {
 })
 
 describe('Sidebar update pill', () => {
+  beforeEach(() => {
+    ;(window as unknown as { guisedesk: unknown }).guisedesk = { rowMenu: vi.fn(), onRowMenuPick: vi.fn() }
+  })
+
   it('shows only when an update is available, next to the version, and emits update on click', async () => {
     expect(mount(Sidebar, { props: { accounts } }).find('.foot .upd').exists()).toBe(false)
     const w = mount(Sidebar, { props: { accounts, update: true } })
@@ -76,6 +80,7 @@ describe('Update in the app', () => {
       onSidebar: vi.fn(),
       onZoom: vi.fn(),
       onLinkChoose: vi.fn(),
+      onRowMenuPick: vi.fn(),
       onOpenSettings: vi.fn(),
       select: vi.fn(),
       dialog: vi.fn(),

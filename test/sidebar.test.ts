@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { version } from '../package.json'
 import Sidebar from '../src/renderer/src/Sidebar.vue'
 
@@ -16,6 +16,9 @@ const accounts = [
   acc('th1', 'threads', '@ben.n', 5),
   acc('tt1', 'tiktok', '@ben.n', 6)
 ]
+
+const bridge = { rowMenu: vi.fn(), onRowMenuPick: vi.fn() }
+;(window as unknown as { guisedesk: unknown }).guisedesk = bridge
 
 describe('Sidebar', () => {
   const w = mount(Sidebar, { props: { accounts, selectedId: 'dc1' } })
@@ -77,31 +80,33 @@ describe('Sidebar', () => {
     expect(rows[1].find('.name').text()).toBe('PersonalWhatsApp')
   })
 
-  it('right-click opens a Mute / Unmute item that emits mute with the new state', async () => {
-    const c = mount(Sidebar, {
-      props: { accounts: [{ ...acc('dc1', 'discord', 'ben_n', 0), muted: true }, acc('wa1', 'whatsapp', 'Personal', 1)] }
-    })
-    expect(c.find('.ctx').exists()).toBe(false)
-    await c.findAll('.row')[1].trigger('contextmenu')
-    expect(c.find('.ctx .mi').text()).toBe('Mute')
-    await c.find('.ctx .mi').trigger('click')
-    expect(c.emitted('mute')![0]).toEqual(['wa1', true])
-    expect(c.find('.ctx').exists()).toBe(false)
-    await c.findAll('.row')[0].trigger('contextmenu')
-    expect(c.find('.ctx .mi').text()).toBe('Unmute')
-    await c.find('.ctx .mi').trigger('click')
-    expect(c.emitted('mute')![1]).toEqual(['dc1', false])
-  })
+  describe('row menu is native (D41)', () => {
+    const pickers = () => bridge.onRowMenuPick.mock.calls.map((c) => c[0] as (p: { id: string; action: string }) => void)
+    const setup = (props: { accounts: (ReturnType<typeof acc> & { muted?: boolean })[] }) => {
+      bridge.rowMenu.mockClear()
+      bridge.onRowMenuPick.mockClear()
+      return mount(Sidebar, { props })
+    }
 
-  it('right-click menu has Sleep now between Mute and Account settings for awake accounts only, and emits sleep with the id', async () => {
-    const c = mount(Sidebar, { props: { accounts: [acc('dc1', 'discord', 'ben_n', 0), acc('wa1', 'whatsapp', 'Personal', 1)], asleep: ['dc1'] } })
-    await c.findAll('.row')[1].trigger('contextmenu')
-    expect(c.findAll('.ctx .mi').map((m) => m.text())).toEqual(['Mute', 'Sleep now', 'Account settings'])
-    await c.findAll('.ctx .mi')[1].trigger('click')
-    expect(c.emitted('sleep')![0]).toEqual(['wa1'])
-    expect(c.find('.ctx').exists()).toBe(false)
-    await c.findAll('.row')[0].trigger('contextmenu')
-    expect(c.findAll('.ctx .mi').map((m) => m.text())).toEqual(['Mute', 'Account settings'])
+    it('right-click asks main for the menu with the account id and draws no HTML menu', async () => {
+      const c = setup({ accounts: [acc('dc1', 'discord', 'ben_n', 0), acc('wa1', 'whatsapp', 'Personal', 1)] })
+      await c.findAll('.row')[1].trigger('contextmenu')
+      expect(bridge.rowMenu).toHaveBeenCalledWith('wa1')
+      expect(c.find('.ctx').exists()).toBe(false)
+    })
+
+    it('a mute pick emits mute with the opposite of the account state', () => {
+      const c = setup({ accounts: [{ ...acc('dc1', 'discord', 'ben_n', 0), muted: true }, acc('wa1', 'whatsapp', 'Personal', 1)] })
+      pickers().forEach((f) => { f({ id: 'wa1', action: 'mute' }); f({ id: 'dc1', action: 'mute' }) })
+      expect(c.emitted('mute')).toEqual([['wa1', true], ['dc1', false]])
+    })
+
+    it('sleep and account picks emit sleep(id) and account(id)', () => {
+      const c = setup({ accounts })
+      pickers().forEach((f) => { f({ id: 'x1', action: 'sleep' }); f({ id: 'ig1', action: 'account' }) })
+      expect(c.emitted('sleep')).toEqual([['x1']])
+      expect(c.emitted('account')).toEqual([['ig1']])
+    })
   })
 
   describe('drag to reorder (D28)', () => {
@@ -146,7 +151,7 @@ describe('Sidebar', () => {
       await row.trigger('click')
       expect(c.emitted('select')![0]).toEqual(['wa1'])
       await row.trigger('contextmenu')
-      expect(c.find('.ctx').exists()).toBe(true)
+      expect(bridge.rowMenu).toHaveBeenCalledWith('wa1')
     })
   })
 
@@ -215,6 +220,7 @@ describe('App sidebar state', () => {
       onSidebar: (cb: typeof push) => (push = cb),
       onZoom: () => {},
       onLinkChoose: () => {},
+      onRowMenuPick: () => {},
       onUpdate: () => {},
       updateState: async () => ({ state: 'none' })
     }

@@ -96,10 +96,6 @@ body {
 .row .slot { min-width: 20px; height: 18px; }
 .row .count { min-width: 20px; height: 18px; padding: 0 6px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 10.5px; font-weight: 700; display: grid; place-items: center; }
 .row .count.muted { background: #ffffff12; color: var(--muted); }
-.ctx-veil { position: fixed; inset: 0; z-index: 20; }
-.ctx { position: fixed; z-index: 21; min-width: 140px; border-radius: 10px; padding: 6px; background: var(--card); border: 1px solid #ffffff14; box-shadow: 0 20px 50px #0008; }
-.ctx .mi { padding: 7px 10px; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer; }
-.ctx .mi:hover { background: var(--raise); }
 .av { width: 28px; height: 28px; border-radius: 50%; position: relative; flex: none; display: grid; place-items: center; font-size: 10.5px; font-weight: 700; color: #fff; }
 .av .svc { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; border-radius: 4px; border: 2px solid var(--side); display: grid; place-items: center; overflow: hidden; }
 .av .svc svg, .av .svc img { width: 8px; height: 8px; display: block; }
@@ -233,7 +229,7 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 
 /* Motion (D34). Nothing here animates size or position of anything main sizes (sidebar width, panel bounds, service view).
    Enter animations only: dialogs are v-if'd away at once on close, so nothing lingers over the native view (main re-attaches it then). */
-.row, .ib, .btn, .pk, .inp, .seg span, .tabs span, .ar, .ctx .mi, .chip.zoom, .pad button, .foot .upd {
+.row, .ib, .btn, .pk, .inp, .seg span, .tabs span, .ar, .chip.zoom, .pad button, .foot .upd {
   transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
 }
 .tg { transition: background-color var(--dur-fast) var(--ease); }
@@ -242,7 +238,7 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 @keyframes gd-rise { from { opacity: 0; transform: translateY(4px); } }
 @keyframes gd-fade { from { opacity: 0; } }
 .veil { animation: gd-fade var(--dur) var(--ease); }
-.glass, .ctx, .settings, .settings .cards, .asleep, .lockv.reset > div, .foot .upd:not(.dot) { animation: gd-rise var(--dur) var(--ease); }
+.glass, .settings, .settings .cards, .asleep, .lockv.reset > div, .foot .upd:not(.dot) { animation: gd-rise var(--dur) var(--ease); }
 .foot .upd.dot { animation: gd-fade var(--dur) var(--ease); }
 
 @media (prefers-reduced-motion: reduce) {

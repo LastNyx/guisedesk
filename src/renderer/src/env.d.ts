@@ -84,6 +84,9 @@ interface Window {
     reload(id: string): void
     /** Sleep now (D27): unloads the account's view; it wakes on Wake up, Reload or reselect. */
     sleepNow(id: string): void
+    /** Sidebar row menu (D41): main pops up a native menu; the pick comes back through onRowMenuPick. */
+    rowMenu(id: string): void
+    onRowMenuPick(cb: (p: { id: string; action: string }) => void): void
     /** Drag reorder (D28): full id list in the new order. */
     reorder(ids: string[]): Promise<Snapshot>
     /** Reset the shown account's zoom to 100% (D32). */

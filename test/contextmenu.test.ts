@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildContextMenu, type MenuParams } from '../src/main/contextmenu'
+import { buildContextMenu, rowMenuItems, type MenuParams } from '../src/main/contextmenu'
 
 const flags = { canUndo: true, canRedo: false, canCut: true, canCopy: true, canPaste: true, canSelectAll: true }
 const base: MenuParams = {
@@ -61,5 +61,22 @@ describe('buildContextMenu', () => {
   it('locked: nothing; non-http link: no Open link in browser', () => {
     expect(buildContextMenu({ ...base, linkURL: 'https://a.example' }, { ...state, locked: true })).toEqual([])
     expect(labels({ linkURL: 'mailto:a@b.c' })).toEqual(['Copy link address', '-', 'Back', 'Forward', 'Reload'])
+  })
+})
+
+describe('rowMenuItems (D41)', () => {
+  it('lists Mute, Sleep now, Account settings for an awake unmuted account', () => {
+    expect(rowMenuItems({ muted: false, asleep: false })).toEqual([
+      { action: 'mute', label: 'Mute' },
+      { action: 'sleep', label: 'Sleep now' },
+      { action: 'account', label: 'Account settings' }
+    ])
+  })
+
+  it('says Unmute for a muted account and drops Sleep now for an asleep one', () => {
+    expect(rowMenuItems({ muted: true, asleep: true })).toEqual([
+      { action: 'mute', label: 'Unmute' },
+      { action: 'account', label: 'Account settings' }
+    ])
   })
 })

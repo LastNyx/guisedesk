@@ -56,3 +56,12 @@ export function buildContextMenu(p: MenuParams, s: MenuState): MenuEntry[] {
     .filter((g) => g.length)
     .flatMap((g, i): MenuEntry[] => (i ? [{ type: 'separator' }, ...g] : g))
 }
+
+/** Sidebar account row menu (D19, D27, D41): shown as a native menu so it draws over the service view. */
+export function rowMenuItems(s: { muted: boolean; asleep: boolean }): { action: string; label: string }[] {
+  return [
+    { action: 'mute', label: s.muted ? 'Unmute' : 'Mute' },
+    ...(s.asleep ? [] : [{ action: 'sleep', label: 'Sleep now' }]),
+    { action: 'account', label: 'Account settings' }
+  ]
+}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { kindOf, presetFor } from '../../main/presets'
 import BrandMark from './BrandMark.vue'
 import LogoGlyph from './LogoGlyph.vue'
@@ -58,23 +58,15 @@ const serviceName = (a: Acc) => presetFor(a.serviceId)?.name ?? 'Custom'
 // In the rail the name is only a tooltip.
 const tip = (a: Acc) => (props.collapsed ? `${a.label} · ${serviceName(a)}` : undefined)
 
-// Right-click menu (D19, D27): Mute / Unmute, Sleep now (awake accounts only), Account settings. Closes on pick or any click elsewhere.
-const ctx = ref<{ id: string; muted: boolean; asleep: boolean; x: number; y: number } | undefined>()
-function openCtx(e: MouseEvent, a: Acc) {
-  ctx.value = { id: a.id, muted: !!a.muted, asleep: !!props.asleep?.includes(a.id), x: e.clientX, y: e.clientY }
-}
-function pick() {
-  if (ctx.value) emit('mute', ctx.value.id, !ctx.value.muted)
-  ctx.value = undefined
-}
-function pickSleep() {
-  if (ctx.value) emit('sleep', ctx.value.id)
-  ctx.value = undefined
-}
-function pickSettings() {
-  if (ctx.value) emit('account', ctx.value.id)
-  ctx.value = undefined
-}
+// Right-click menu (D19, D27, D41): main pops up a native menu (it must draw over the service view) and sends the pick back.
+const openCtx = (_e: MouseEvent, a: Acc) => window.guisedesk.rowMenu(a.id)
+onMounted(() =>
+  window.guisedesk.onRowMenuPick(({ id, action }) => {
+    if (action === 'mute') emit('mute', id, !props.accounts.find((a) => a.id === id)?.muted)
+    else if (action === 'sleep') emit('sleep', id)
+    else if (action === 'account') emit('account', id)
+  })
+)
 </script>
 
 <template>
@@ -103,9 +95,5 @@ function pickSettings() {
     </div>
     <div class="grow"></div>
     <div class="foot"><button class="ib tgl" :title="collapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'" :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'" @click="emit('toggle')"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg><i v-if="update && collapsed" class="upd dot" title="Update available" @click.stop="emit('update')"></i></button><span v-if="!collapsed" class="ver">GuiseDesk v{{ version }}</span><button v-if="update && !collapsed" class="upd" title="Update available" @click="emit('update')">Update</button></div>
-    <template v-if="ctx">
-      <div class="ctx-veil" @click="ctx = undefined" @contextmenu.prevent="ctx = undefined"></div>
-      <div class="ctx" :style="{ left: ctx.x + 'px', top: ctx.y + 'px' }"><div class="mi" @click="pick">{{ ctx.muted ? 'Unmute' : 'Mute' }}</div><div v-if="!ctx.asleep" class="mi" @click="pickSleep">Sleep now</div><div class="mi" @click="pickSettings">Account settings</div></div>
-    </template>
   </aside>
 </template>

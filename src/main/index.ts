@@ -26,7 +26,7 @@ import { isAutostart, setAutostart, startsHidden } from './autostart'
 import { applyIdle } from './prefs'
 import { checkForUpdate, realRun, type UpdateInfo } from './updater'
 import { version } from '../../package.json'
-import { buildContextMenu } from './contextmenu'
+import { buildContextMenu, rowMenuItems } from './contextmenu'
 import { doneNotice, loadDownloads, saveDownloads, uniquePath } from './downloads'
 import { nextZoom, switchTarget, zoomKey, type KeyInput } from './shortcuts'
 import { sidebarOrder } from './services'
@@ -780,6 +780,17 @@ function createWindow(): BrowserWindow {
     hib.sleep(a.id)
     sleepAccount(a, 0)
     pushSleep()
+  })
+  // Row menu (D41): native so it draws over the service view; the pick goes back to the sidebar.
+  gipc.on('sidebar:menu', (e: { sender: { id: number } }, id: string) => {
+    const a = fromApp(e) && enabled().find((x) => x.id === id)
+    if (!a) return
+    Menu.buildFromTemplate(
+      rowMenuItems({ muted: !!a.muted, asleep: hib.isAsleep(a.id) }).map((i) => ({
+        label: i.label,
+        click: () => win.webContents.send('sidebar:menu-pick', { id: a.id, action: i.action })
+      }))
+    ).popup({ window: win })
   })
   // Links to another service (D40): none -> browser, one -> popup, several -> the renderer's chooser (one pending at a time).
   let pending: { id: number; url: string; ids: string[] } | undefined

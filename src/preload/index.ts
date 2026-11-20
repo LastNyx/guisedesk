@@ -77,6 +77,8 @@ if (service) {
   dialog: (open: boolean) => ipcRenderer.send('ui:dialog', open),
   reload: (id: string) => ipcRenderer.send('accounts:reload', id),
   sleepNow: (id: string) => ipcRenderer.send('accounts:sleep', id),
+  rowMenu: (id: string) => ipcRenderer.send('sidebar:menu', id),
+  onRowMenuPick: (cb: (p: { id: string; action: string }) => void) => ipcRenderer.on('sidebar:menu-pick', (_e, p) => cb(p)),
   reorder: (ids: string[]) => ipcRenderer.invoke('accounts:reorder', ids),
   resetZoom: (id: string) => ipcRenderer.invoke('accounts:zoom-reset', id),
   onZoom: (cb: (s: unknown) => void) => ipcRenderer.on('accounts:zoom', (_e, s) => cb(s)),

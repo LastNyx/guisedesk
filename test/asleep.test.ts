@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AsleepPanel from '../src/renderer/src/AsleepPanel.vue'
 import Sidebar from '../src/renderer/src/Sidebar.vue'
 
@@ -29,6 +29,10 @@ describe('AsleepPanel manual sleep', () => {
 })
 
 describe('Sidebar asleep rows', () => {
+  beforeEach(() => {
+    ;(window as unknown as { guisedesk: unknown }).guisedesk = { rowMenu: vi.fn(), onRowMenuPick: vi.fn() }
+  })
+
   it('dims asleep rows and shows ZZ in place of the count', () => {
     const w = mount(Sidebar, { props: { accounts: [ig, { ...ig, id: 'x1', serviceId: 'x', order: 2 }], asleep: ['ig1'], counts: { ig1: 4 } } })
     const rows = w.findAll('.row')
@@ -59,6 +63,7 @@ describe('App asleep panel', () => {
       onSidebar: () => {},
       onZoom: () => {},
       onLinkChoose: () => {},
+      onRowMenuPick: () => {},
       onUpdate: () => {},
       updateState: async () => ({ state: 'none' }),
       select,

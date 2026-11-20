@@ -92,6 +92,7 @@ describe('Settings in the app', () => {
   let bridge: Record<string, ReturnType<typeof vi.fn> | unknown>
   let openSettings: () => void
   let onLock: (i: unknown) => void
+  let rowPick: (p: { id: string; action: string }) => void
   const snap = (disabledServices: string[]) => ({ accounts, selectedId: 'wa1', disabledServices })
 
   beforeEach(() => {
@@ -105,8 +106,10 @@ describe('Settings in the app', () => {
       sleep: async () => ({}),
       onSleep: vi.fn(),
       onSidebar: vi.fn(),
+      rowMenu: vi.fn(),
       onZoom: vi.fn(),
       onLinkChoose: () => {},
+      onRowMenuPick: vi.fn((cb) => (rowPick = cb)),
       onUpdate: () => {},
       updateState: async () => ({ state: 'none' }),
       onOpenSettings: vi.fn((cb) => (openSettings = cb)),
@@ -182,7 +185,9 @@ describe('Settings in the app', () => {
     const w = mount(App)
     await flushPromises()
     await w.findAll('aside .row')[3].trigger('contextmenu')
-    await w.findAll('.ctx .mi').find((m) => m.text() === 'Account settings')!.trigger('click')
+    expect((bridge as { rowMenu: unknown }).rowMenu).toHaveBeenCalledWith('ig1')
+    rowPick({ id: 'ig1', action: 'account' })
+    await flushPromises()
     expect(w.find('.glass h3').text()).toBe('@shop')
   })
 

@@ -44,7 +44,8 @@ describe('App link chooser', () => {
       unread: async () => ({}), onUnread: () => {}, onSelected: () => {}, onOpenSettings: () => {},
       sleep: async () => ({}), onSleep: () => {}, onSidebar: () => {}, onZoom: () => {}, onUpdate: () => {},
       updateState: async () => ({ state: 'none' }), dialog: vi.fn(), chooseLink: vi.fn(),
-      onLinkChoose: (cb: (r: unknown) => void) => (ask = cb)
+      onLinkChoose: (cb: (r: unknown) => void) => (ask = cb),
+      onRowMenuPick: () => {}
     }
     ;(window as unknown as { guisedesk: unknown }).guisedesk = bridge
     const w = mount(App)
