@@ -162,6 +162,12 @@ function openPopup(a: Account, url: string): void {
     hib.touch(a.id)
     touchIdle()
     if (input.type !== 'keyDown') return
+    // Ctrl+L locks from a popup too; locking closes every popup (D37).
+    if (isLockShortcut(input)) {
+      e.preventDefault()
+      lock.lock()
+      return
+    }
     if (input.key === 'Escape' || (input.control && !input.alt && !input.shift && input.key.toLowerCase() === 'w')) {
       e.preventDefault()
       w.close()
