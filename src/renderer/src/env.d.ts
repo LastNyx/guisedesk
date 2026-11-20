@@ -13,6 +13,7 @@ interface AccountRow {
   muted?: boolean
   zoom?: number
   idlePolicy?: string
+  shareWith?: string
   custom?: { name: string; url: string; icon?: string }
 }
 
@@ -108,6 +109,7 @@ interface Window {
       serviceId: string
       label: string
       colour: string
+      shareWith?: string
       custom?: { name: string; url: string }
     }): Promise<Snapshot | { error: string }>
   }

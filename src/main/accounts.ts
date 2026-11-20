@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeAtomic, type Fs } from './atomic'
-import { validateNewAccount, type NewAccountInput } from './validate'
+import { checkShare, validateNewAccount, type NewAccountInput } from './validate'
 
 export interface Account {
   id: string
@@ -14,6 +14,8 @@ export interface Account {
   muted?: boolean
   /** Chromium zoom level (D32); missing = 0 (100%). */
   zoom?: number
+  /** Host account id whose session partition this account uses (D36). */
+  shareWith?: string
   custom?: { name: string; url: string; hosts: string[]; icon?: string }
 }
 
@@ -41,6 +43,8 @@ export function addAccount(dir: string, input: NewAccountInput, icon?: string): 
   const v = validateNewAccount(input)
   if (!v.ok) throw new Error(v.error)
   const accounts = loadAccounts(dir)
+  const bad = checkShare(v.value.serviceId, v.value.shareWith, accounts)
+  if (bad) throw new Error(bad)
   const order = accounts.reduce((m, a) => Math.max(m, a.order + 1), 0)
   const { custom, ...rest } = v.value
   const account: Account = {

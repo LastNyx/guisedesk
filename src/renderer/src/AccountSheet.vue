@@ -1,21 +1,27 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { presetFor } from '../../main/presets'
 import { effectiveChoice, SLEEP_CHOICES } from '../../main/services'
+import { onPartition } from '../../main/sharing'
 import { initials } from './initials'
 import LogoGlyph from './LogoGlyph.vue'
 import { logoStyle } from './logos'
 
 const props = defineProps<{
   account: {
-    id: string; serviceId: string; label: string; colour: string; idlePolicy?: string; muted?: boolean
+    id: string; serviceId: string; label: string; colour: string; idlePolicy?: string; muted?: boolean; shareWith?: string
     custom?: { name: string; icon?: string }
   }
+  accounts?: { id: string; serviceId: string; label: string; shareWith?: string }[]
 }>()
 const emit = defineEmits<{ policy: [value: string]; mute: [muted: boolean]; logout: []; remove: []; done: [] }>()
 
 const confirming = ref(false)
 const loggedOut = ref(false)
+// Shared login (D36): the host this account uses, or the others on this account's partition.
+const host = computed(() => (props.account.shareWith ? props.accounts?.find((a) => a.id === props.account.shareWith) : undefined))
+const others = computed(() => onPartition(props.account, props.accounts ?? []).filter((a) => a.id !== props.account.id))
+const alsoOut = computed(() => others.value.map((a) => a.label).join(', '))
 const serviceName = () => presetFor(props.account.serviceId)?.name ?? props.account.custom?.name ?? 'Custom site'
 
 function logout() {
@@ -39,6 +45,9 @@ function logout() {
         <span class="t"><b>Mute</b><span>Keep the count, skip pop-ups</span></span>
         <button class="tg" :class="{ on: account.muted }" role="switch" :aria-checked="!!account.muted" aria-label="Mute" @click="emit('mute', !account.muted)"></button>
       </div>
+      <div v-if="host" class="hint share">Shares login with {{ host.label }}</div>
+      <div v-else-if="others.length" class="hint share">Login shared with {{ others.map((a) => a.label).join(', ') }}</div>
+      <div v-if="alsoOut" class="hint warn">Also logs out {{ alsoOut }}</div>
       <div v-if="loggedOut" class="hint">Logged out. The account is still here; log in again from its page.</div>
       <div v-if="confirming" class="confirm">
         <div class="err">Remove {{ account.label }}? Its login and saved data are deleted. This cannot be undone.</div>

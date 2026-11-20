@@ -28,6 +28,7 @@ import { buildContextMenu } from './contextmenu'
 import { doneNotice, loadDownloads, saveDownloads, uniquePath } from './downloads'
 import { nextZoom, switchTarget, zoomKey, type KeyInput } from './shortcuts'
 import { sidebarOrder } from './services'
+import { partitionKey, partitionOf } from './sharing'
 import { secondLaunch } from './singleinstance'
 import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
@@ -215,7 +216,7 @@ function viewFor(a: Account): WebContentsView {
   if (!v) {
     v = new WebContentsView({
       webPreferences: {
-        partition: `persist:${a.id}`,
+        partition: partitionOf(a),
         sandbox: true,
         contextIsolation: true,
         devTools,
@@ -515,7 +516,7 @@ function createWindow(): BrowserWindow {
   ipcMain.handle('lock:reset', async (e, typed) => {
     if (!fromApp(e) || lock.state() === 'setup') return { error: 'Refused' }
     if (typed !== RESET_WORD) return { error: `Type ${RESET_WORD} to confirm` }
-    const ids = new Set([...loadAccounts(dir).map((a) => a.id), ...views.keys()])
+    const keys = new Set([...loadAccounts(dir).map(partitionKey), ...views.keys()])
     if (attached) detach(win, attached)
     attached = undefined
     attachedId = undefined
@@ -524,8 +525,8 @@ function createWindow(): BrowserWindow {
       v.webContents.close()
     }
     views.clear()
-    for (const id of ids) {
-      const ses = session.fromPartition(`persist:${id}`)
+    for (const key of keys) {
+      const ses = session.fromPartition(`persist:${key}`)
       await ses.clearStorageData().catch(() => {})
       await ses.clearCache().catch(() => {})
     }
@@ -630,8 +631,8 @@ function createWindow(): BrowserWindow {
     if (held) held.idlePolicy = policy
     return snapshot()
   })
-  const clearStorage = async (id: string) => {
-    const ses = session.fromPartition(`persist:${id}`)
+  const clearStorage = async (key: string) => {
+    const ses = session.fromPartition(`persist:${key}`)
     await ses.clearStorageData().catch(() => {})
     await ses.clearCache().catch(() => {})
   }
@@ -716,7 +717,12 @@ function createWindow(): BrowserWindow {
     const v = validateNewAccount(input)
     if (!v.ok) return { error: v.error }
     const icon = v.value.custom ? await cacheFavicon(dir, v.value.custom.url, fetchSite) : undefined
-    const account = addAccount(dir, input, icon)
+    let account: Account
+    try {
+      account = addAccount(dir, input, icon)
+    } catch (err) {
+      return { error: (err as Error).message }
+    }
     accounts = orderedAccounts(loadAccounts(dir))
     selectedId = account.id
     saveSelected(dir, account.id)

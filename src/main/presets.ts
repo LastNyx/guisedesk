@@ -11,6 +11,8 @@ export interface Preset {
   /** Hosts (and their subdomains) that count as the same service. */
   hosts: string[]
   userAgent: string
+  /** Services of one company that may share a login (D36). */
+  family?: 'meta'
 }
 
 // Plain Chrome UA, no Electron or app tokens (WhatsApp Web refuses Electron's).
@@ -21,6 +23,8 @@ const p = (
   id: string, name: string, startUrl: string, glyph: string, bg: string, kind: Kind, hosts: string[]
 ): Preset => ({ id, name, startUrl, icon: { glyph, bg }, kind, hosts, userAgent: CHROME_UA })
 
+const META = ['instagram', 'threads', 'facebook']
+
 export const PRESETS: Preset[] = [
   p('whatsapp', 'WhatsApp', 'https://web.whatsapp.com/', 'W', '#25d366', 'chat', ['whatsapp.com', 'whatsapp.net']),
   p('discord', 'Discord', 'https://discord.com/app', 'D', '#5865f2', 'chat', ['discord.com', 'discordapp.com', 'discord.gg', 'discordapp.net']),
@@ -29,7 +33,7 @@ export const PRESETS: Preset[] = [
   p('x', 'X', 'https://x.com/', 'X', '#000000', 'feed', ['x.com', 'twitter.com', 'twimg.com']),
   p('threads', 'Threads', 'https://www.threads.com/', '@', '#000000', 'feed', ['threads.com', 'threads.net', 'instagram.com', 'cdninstagram.com', 'fbcdn.net']),
   p('tiktok', 'TikTok', 'https://www.tiktok.com/', 'T', '#000000', 'feed', ['tiktok.com', 'tiktokcdn.com', 'tiktokv.com'])
-]
+].map((x) => (META.includes(x.id) ? { ...x, family: 'meta' as const } : x))
 
 /** Custom URL service: kind feed by default; start URL and hosts come from the account. */
 export const CUSTOM_PRESET_ID = 'custom'

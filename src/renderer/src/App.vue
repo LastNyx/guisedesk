@@ -221,12 +221,13 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
     <AccountSheet
       v-if="settingsOpen && sheetAccount"
       :account="sheetAccount"
+      :accounts="accounts"
       @policy="(v) => setPolicy(sheetAccount!.id, v)"
       @mute="(m) => mute(sheetAccount!.id, m)"
       @logout="logout(sheetAccount!.id)"
       @remove="removeAccount(sheetAccount!.id)"
       @done="sheetId = undefined"
     />
-    <AddAccount v-if="adding" :server-error="addError" @add="add" @cancel="closeAdd" />
+    <AddAccount v-if="adding" :accounts="accounts" :server-error="addError" @add="add" @cancel="closeAdd" />
   </div>
 </template>

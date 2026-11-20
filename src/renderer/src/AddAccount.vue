@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { CUSTOM_PRESET_ID, PRESETS, presetFor } from '../../main/presets'
+import { defaultShare, shareHosts } from '../../main/sharing'
 import { validateNewAccount, type NewAccountInput } from '../../main/validate'
 import LogoGlyph from './LogoGlyph.vue'
 import { logoStyle } from './logos'
 
-const props = defineProps<{ serverError?: string }>()
+const props = defineProps<{ serverError?: string; accounts?: { id: string; serviceId: string; label: string; shareWith?: string }[] }>()
 const emit = defineEmits<{ add: [input: NewAccountInput]; cancel: [] }>()
 
 const COLOURS = ['#6d5bd0', '#c7772a', '#2f7fb6', '#2b8a6e', '#b04c7a', '#4a5bc4']
@@ -22,6 +23,11 @@ const colour = ref(COLOURS[0])
 const cname = ref('')
 const curl = ref('')
 const error = ref('')
+// Login choice (D36): only for a Meta service with other-service accounts to share with. undefined = Separate.
+const hosts = computed(() => shareHosts(serviceId.value, props.accounts ?? []))
+const share = ref<string | undefined>(defaultShare(serviceId.value, props.accounts ?? []))
+watch(serviceId, (id) => (share.value = defaultShare(id, props.accounts ?? [])))
+const hostText = (a: { serviceId: string; label: string }) => `Same as ${a.label} (${presetFor(a.serviceId)?.name ?? a.serviceId})`
 
 const isCustom = computed(() => serviceId.value === CUSTOM_PRESET_ID)
 const hint = computed(() => {
@@ -37,6 +43,7 @@ function submit() {
     serviceId: serviceId.value,
     label: label.value,
     colour: colour.value,
+    ...(share.value && hosts.value.some((h) => h.id === share.value) ? { shareWith: share.value } : {}),
     ...(isCustom.value ? { custom: { name: cname.value, url: curl.value } } : {})
   }
   const v = validateNewAccount(input)
@@ -45,8 +52,8 @@ function submit() {
     return
   }
   error.value = ''
-  const { serviceId: sid, label: l, colour: c, custom } = v.value
-  emit('add', { serviceId: sid, label: l, colour: c, ...(custom ? { custom: { name: custom.name, url: custom.url } } : {}) })
+  const { serviceId: sid, label: l, colour: c, custom, shareWith } = v.value
+  emit('add', { serviceId: sid, label: l, colour: c, ...(shareWith ? { shareWith } : {}), ...(custom ? { custom: { name: custom.name, url: custom.url } } : {}) })
 }
 </script>
 
@@ -74,6 +81,13 @@ function submit() {
       </template>
       <div class="lbl">Label</div>
       <input v-model="label" class="inp label" placeholder="Business" @keydown.enter="submit" />
+      <template v-if="hosts.length">
+        <div class="lbl">Login</div>
+        <div class="seg login">
+          <span :class="{ sel: !share }" @click="share = undefined">Separate</span>
+          <span v-for="h in hosts" :key="h.id" :class="{ sel: share === h.id }" @click="share = h.id">{{ hostText(h) }}</span>
+        </div>
+      </template>
       <div class="lbl">Colour</div>
       <div class="sw">
         <i
