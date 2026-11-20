@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createHibernator, limitMinutes } from '../src/main/hibernate'
+import { createHibernator, launchAsleep, limitMinutes } from '../src/main/hibernate'
 import { decideNotification } from '../src/main/notify'
 
 const acc = (id: string, serviceId: string, idlePolicy?: string) => ({
@@ -94,5 +94,19 @@ describe('hibernation scheduler', () => {
     t = 30 * MIN
     h.sweep(accounts, 'none')
     expect(decideNotification(ev, { asleep: h.isAsleep('ig') }).action).toBe('drop')
+  })
+})
+
+describe('sleep on launch (D39)', () => {
+  const list = [acc('a', 'whatsapp'), acc('b', 'instagram'), acc('c', 'threads')]
+  it('every account but the selected one', () => {
+    expect(launchAsleep(list, 'b')).toEqual(['a', 'c'])
+  })
+  it('all of them when nothing or an unknown account is selected', () => {
+    expect(launchAsleep(list, undefined)).toEqual(['a', 'b', 'c'])
+    expect(launchAsleep(list, 'zzz')).toEqual(['a', 'b', 'c'])
+  })
+  it('empty list gives none', () => {
+    expect(launchAsleep([], 'a')).toEqual([])
   })
 })

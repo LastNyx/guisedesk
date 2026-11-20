@@ -16,7 +16,7 @@ import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
 import { permissionAllowed } from './permissions'
-import { createHibernator, limitMinutes } from './hibernate'
+import { createHibernator, launchAsleep, limitMinutes } from './hibernate'
 import { createLock, isLockShortcut } from './lock'
 import { createGuardedIpc } from './guard'
 import { wireTriggers } from './triggers'
@@ -641,6 +641,11 @@ function createWindow(): BrowserWindow {
     if (!win.isDestroyed() && isUnlocked()) win.webContents.send('sleep:update', { ...sleepState })
   }
   gipc.handle('sleep:get', () => ({ ...sleepState }))
+  // D39: every account but the selected one starts asleep, like Sleep now (minutes 0). No views exist yet, so only state is set.
+  for (const id of launchAsleep(accounts, selectedId)) {
+    hib.sleep(id)
+    sleepState[id] = { minutes: 0, waking: false }
+  }
   // Dev-only: GUISEDESK_FAKE_ASLEEP=<id> starts that account asleep (stays asleep even if selected, so the panel can be shot).
   const fakeAsleep = process.env.GUISEDESK_FAKE_ASLEEP
   if (accounts.some((a) => a.id === fakeAsleep)) {

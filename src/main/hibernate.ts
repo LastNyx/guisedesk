@@ -15,6 +15,11 @@ export function limitMinutes(a: Sleeper): number | null {
   return kindOf(a.serviceId) === 'feed' ? 30 : null
 }
 
+/** Accounts that start asleep (D39): all but the selected one; all of them when the selection is missing or unknown. */
+export function launchAsleep(accounts: Sleeper[], selectedId?: string): string[] {
+  return accounts.filter((a) => a.id !== selectedId).map((a) => a.id)
+}
+
 export function createHibernator(now: () => number) {
   const lastUsed = new Map<string, number>()
   const asleep = new Set<string>()
