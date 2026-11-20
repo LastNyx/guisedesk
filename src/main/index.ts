@@ -28,6 +28,7 @@ import { buildContextMenu } from './contextmenu'
 import { doneNotice, loadDownloads, saveDownloads, uniquePath } from './downloads'
 import { nextZoom, switchTarget, zoomKey, type KeyInput } from './shortcuts'
 import { sidebarOrder } from './services'
+import { secondLaunch } from './singleinstance'
 import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
@@ -37,6 +38,12 @@ app.setDesktopName('guisedesk.desktop')
 const dir = dataDir(process.env, homedir())
 mkdirSync(dir, { recursive: true })
 app.setPath('userData', dir)
+// One copy per data dir (D35): the lock follows userData, so dev and test dirs get their own. A second copy exits here,
+// before the lock file, the session or any window is touched.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+  process.exit(0)
+}
 
 // Content panel inside the renderer layout (D26 compact): numbers in layout.ts, shared with Sidebar.vue.
 // Sidebar rail state (D24), loaded from settings in createWindow.
@@ -344,6 +351,12 @@ function createWindow(): BrowserWindow {
     win.show()
     win.focus()
   }
+  // A second launch: raise this window (lock state unchanged) unless it was a --hidden login start.
+  app.on('second-instance', (_e, argv) => {
+    if (secondLaunch(argv) === 'ignore') return
+    if (win.isMinimized()) win.restore()
+    showWindow()
+  })
   dnd = loadDnd(dir)
   // Tray Settings: raise the window, and open the screen only when unlocked (the renderer ignores it otherwise too).
   const openSettings = () => {
