@@ -1,6 +1,7 @@
 // App UI bridge.
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { countsAsInput } from './touch'
+import { parseHint, pickPostLink } from './postlink'
 
 // Service views (flagged by main with --gd-service) get only a notification shim; the app bridge is not exposed to them.
 const service = process.argv.includes('--gd-service')
@@ -39,6 +40,18 @@ if (service) {
     ipcRenderer.send('notify:show', { title, body, icon })
   )
   webFrame.executeJavaScript(SHIM).catch(() => {})
+  // D38: a middle-click on a JS-routed post (not inside a real <a>) asks main for a popup of its permalink.
+  const hint = parseHint(process.argv)
+  if (hint) {
+    window.addEventListener('auxclick', (e) => {
+      const t = e.target
+      if (e.button !== 1 || !(t instanceof Element) || t.closest('a')) return
+      const url = pickPostLink(t, hint)
+      if (!url) return
+      e.preventDefault()
+      ipcRenderer.send('popup:request', url)
+    }, true)
+  }
 } else contextBridge.exposeInMainWorld('guisedesk', {
   lockState: () => ipcRenderer.invoke('lock:state'),
   onLock: (cb: (info: unknown) => void) => ipcRenderer.on('lock:changed', (_e, info) => cb(info)),

@@ -11,7 +11,7 @@ import { cacheFavicon, readIcon, type Fetcher } from './favicon'
 import { validateNewAccount } from './validate'
 import { presetFor, CHROME_UA } from './presets'
 import { redirectAllowed, route } from './links'
-import { createPopups, openTarget } from './popups'
+import { acceptPopupRequest, createPopups, openTarget } from './popups'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
@@ -278,7 +278,7 @@ function viewFor(a: Account): WebContentsView {
         contextIsolation: true,
         devTools,
         preload: join(__dirname, '../preload/index.js'),
-        additionalArguments: ['--gd-service']
+        additionalArguments: ['--gd-service', ...(presetFor(a.serviceId)?.postLink ? ['--gd-postlink=' + JSON.stringify(presetFor(a.serviceId)!.postLink)] : [])]
       }
     })
     owner.set(v.webContents.id, a)
@@ -489,6 +489,11 @@ function createWindow(): BrowserWindow {
   touchIdle = triggers.touch
   setInterval(triggers.check, 10_000).unref()
   ipcMain.removeAllListeners('idle:touch')
+  ipcMain.on('popup:request', (e, url) => {
+    const a = owner.get(e.sender.id)
+    const u = a && isUnlocked() ? acceptPopupRequest(url, a) : null
+    if (a && u) openPopup(a, u)
+  })
   ipcMain.on('idle:touch', (e) => (fromApp(e) || owner.has(e.sender.id)) && triggers.touch())
   // Self-update (D29): check once the window is up and every 12 h; apply hands over to a temp copy of update.sh and quits.
   const root = appRoot(app.getAppPath(), existsSync)

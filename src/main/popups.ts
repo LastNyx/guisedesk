@@ -1,4 +1,6 @@
 // Popup windows (D37). Plain TS, no electron: where a link opens, and the registry of open popups.
+import type { Account } from './accounts'
+import { route } from './links'
 
 export type Target = 'popup' | 'same-view' | 'external' | 'deny'
 
@@ -26,4 +28,11 @@ export function createPopups<W>(close: (w: W) => void) {
     closeAll: () => closeWhere(() => true),
     count: () => open.size
   }
+}
+
+/** A popup request from a service view (D38): the URL to open, only when it routes in-app for the account. */
+export function acceptPopupRequest(url: unknown, account: Account): string | null {
+  if (typeof url !== 'string') return null
+  const r = route(url, account)
+  return r.action === 'in-app' ? r.url : null
 }

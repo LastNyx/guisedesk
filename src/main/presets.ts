@@ -13,6 +13,8 @@ export interface Preset {
   userAgent: string
   /** Services of one company that may share a login (D36). */
   family?: 'meta'
+  /** Selectors for a post that is not a link: its container and the permalink inside it (D38). */
+  postLink?: { container: string; link: string }
 }
 
 // Plain Chrome UA, no Electron or app tokens (WhatsApp Web refuses Electron's).
@@ -34,6 +36,7 @@ export const PRESETS: Preset[] = [
   p('threads', 'Threads', 'https://www.threads.com/', '@', '#000000', 'feed', ['threads.com', 'threads.net', 'instagram.com', 'cdninstagram.com', 'fbcdn.net']),
   p('tiktok', 'TikTok', 'https://www.tiktok.com/', 'T', '#000000', 'feed', ['tiktok.com', 'tiktokcdn.com', 'tiktokv.com'])
 ].map((x) => (META.includes(x.id) ? { ...x, family: 'meta' as const } : x))
+  .map((x) => (x.id === 'threads' ? { ...x, postLink: { container: '[data-pressable-container]', link: 'a[href*="/post/"]' } } : x))
 
 /** Custom URL service: kind feed by default; start URL and hosts come from the account. */
 export const CUSTOM_PRESET_ID = 'custom'
