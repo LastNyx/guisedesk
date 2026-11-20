@@ -1,0 +1,38 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import { presetFor } from '../../main/presets'
+import { initials } from './initials'
+
+defineProps<{ url: string; candidates: { id: string; label: string; colour: string; serviceId: string }[] }>()
+const emit = defineEmits<{ choose: [choice: string | null] }>()
+const veil = ref<HTMLElement>()
+onMounted(() => veil.value?.focus())
+
+const short = (u: string) => (u.length > 56 ? u.slice(0, 55) + '…' : u)
+const serviceName = (id: string) => presetFor(id)?.name ?? 'Custom site'
+</script>
+
+<template>
+  <div ref="veil" class="veil" tabindex="-1" @keydown.esc="emit('choose', null)" @click.self="emit('choose', null)">
+    <div class="glass" role="dialog" aria-label="Open link in">
+      <h3>Open link in</h3>
+      <p class="sub url">{{ short(url) }}</p>
+      <div class="row" v-for="c in candidates" :key="c.id" @click="emit('choose', c.id)">
+        <div class="av" :style="{ background: c.colour }">{{ initials(c.label) }}</div>
+        <div class="nm">{{ c.label }}</div>
+        <div class="svcn">{{ serviceName(c.serviceId) }}</div>
+      </div>
+      <div class="btns">
+        <button class="btn" @click="emit('choose', 'browser')">Open in browser</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.row:hover { background: #ffffff10; }
+.nm { font-weight: 600; flex: 1; }
+.svcn { color: var(--muted); font-size: 12.5px; }
+</style>

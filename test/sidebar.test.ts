@@ -214,6 +214,7 @@ describe('App sidebar state', () => {
       setSidebar,
       onSidebar: (cb: typeof push) => (push = cb),
       onZoom: () => {},
+      onLinkChoose: () => {},
       onUpdate: () => {},
       updateState: async () => ({ state: 'none' })
     }

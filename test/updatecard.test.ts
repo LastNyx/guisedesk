@@ -75,6 +75,7 @@ describe('Update in the app', () => {
       onSleep: vi.fn(),
       onSidebar: vi.fn(),
       onZoom: vi.fn(),
+      onLinkChoose: vi.fn(),
       onOpenSettings: vi.fn(),
       select: vi.fn(),
       dialog: vi.fn(),

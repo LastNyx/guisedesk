@@ -94,5 +94,7 @@ if (service) {
   setDownloadsAsk: (ask: boolean) => ipcRenderer.invoke('downloads:set', { ask }),
   pickDownloadsDir: () => ipcRenderer.invoke('downloads:pick'),
   add: (input: unknown) => ipcRenderer.invoke('accounts:add', input),
+  onLinkChoose: (cb: (r: unknown) => void) => ipcRenderer.on('links:choose', (_e, r) => cb(r)),
+  chooseLink: (id: number, choice: string | null) => ipcRenderer.send('links:chosen', id, choice),
   onSelected: (cb: (id: string) => void) => ipcRenderer.on('accounts:selected', (_e, id) => cb(id))
 })

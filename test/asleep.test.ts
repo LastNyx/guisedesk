@@ -58,6 +58,7 @@ describe('App asleep panel', () => {
       onSleep: (cb: typeof push) => (push = cb),
       onSidebar: () => {},
       onZoom: () => {},
+      onLinkChoose: () => {},
       onUpdate: () => {},
       updateState: async () => ({ state: 'none' }),
       select,

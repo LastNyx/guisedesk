@@ -168,6 +168,7 @@ describe('Settings tabs in the app', () => {
       onSleep: vi.fn(),
       onSidebar: vi.fn(),
       onZoom: vi.fn(),
+      onLinkChoose: vi.fn(),
       onUpdate: vi.fn(),
       updateState: vi.fn(async () => ({ state: 'none' })),
       onOpenSettings: vi.fn(),

@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import AddAccount from './AddAccount.vue'
 import AccountSheet from './AccountSheet.vue'
 import AsleepPanel from './AsleepPanel.vue'
+import LinkChooser from './LinkChooser.vue'
 import LockScreen from './LockScreen.vue'
 import ResetScreen from './ResetScreen.vue'
 import Settings from './Settings.vue'
@@ -38,6 +39,8 @@ const resetting = ref(false)
 // Update status from main (D29); the sidebar pill and Settings > General show it. The pill opens General.
 const update = ref<UpdateInfo>({ state: 'checking' })
 const settingsTab = ref<string | undefined>()
+// An external link that matches several accounts (D40): main asks, we answer once. Main detaches the view while it is open.
+const choosing = ref<LinkChoice | undefined>()
 
 async function loadAccounts() {
   const s = await window.guisedesk.state()
@@ -57,6 +60,7 @@ function wipe() {
   sleep.value = {}
   adding.value = false
   addError.value = ''
+  choosing.value = undefined
   disabled.value = []
   settingsOpen.value = false
   sheetId.value = undefined
@@ -81,6 +85,11 @@ onMounted(async () => {
   window.guisedesk.onSelected((id) => {
     selectedId.value = id
     closeSettings()
+  })
+  window.guisedesk.onLinkChoose((r) => {
+    if (lockInfo.value.state !== 'unlocked') return
+    choosing.value = r
+    window.guisedesk.dialog(true)
   })
   window.guisedesk.onOpenSettings(() => lockInfo.value.state === 'unlocked' && openSettings())
   await apply(await window.guisedesk.lockState())
@@ -184,6 +193,13 @@ async function removeAccount(id: string) {
   take(await window.guisedesk.remove(id))
 }
 
+function chosen(choice: string | null) {
+  if (!choosing.value) return
+  window.guisedesk.chooseLink(choosing.value.id, choice)
+  choosing.value = undefined
+  if (!adding.value && !settingsOpen.value) window.guisedesk.dialog(false)
+}
+
 function openAdd() {
   adding.value = true
   window.guisedesk.dialog(true)
@@ -228,6 +244,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
       @remove="removeAccount(sheetAccount!.id)"
       @done="sheetId = undefined"
     />
+    <LinkChooser v-if="choosing" :url="choosing.url" :candidates="choosing.candidates" @choose="chosen" />
     <AddAccount v-if="adding" :accounts="accounts" :server-error="addError" @add="add" @cancel="closeAdd" />
   </div>
 </template>

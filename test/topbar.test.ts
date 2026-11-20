@@ -76,6 +76,7 @@ async function app(over: Record<string, unknown> = {}, lock = 'unlocked') {
     onSleep: () => {},
     onSidebar: () => {},
     onZoom: () => {},
+    onLinkChoose: () => {},
     onUpdate: () => {},
     updateState: async () => ({ state: 'none' }),
     select: vi.fn(),

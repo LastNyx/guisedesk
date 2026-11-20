@@ -11,6 +11,7 @@ import { cacheFavicon, readIcon, type Fetcher } from './favicon'
 import { validateNewAccount } from './validate'
 import { presetFor, CHROME_UA } from './presets'
 import { redirectAllowed, route } from './links'
+import { candidatesFor } from './servicelinks'
 import { acceptPopupRequest, createPopups, openTarget } from './popups'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
@@ -109,6 +110,9 @@ const popups = createPopups<BrowserWindow>((w) => {
   if (!w.isDestroyed()) w.close()
 })
 
+// An external link (D40): set in createWindow, which owns the account list and the window. Default: the browser.
+let openOut: (url: string) => void = (url) => void shell.openExternal(url)
+
 /** Link rules (D8) shared by a service view and its popups: in-app stays, external goes to the browser, redirects are checked. */
 function hookNav(wc: Electron.WebContents, a: Account): (url: string) => boolean {
   const go = (url: string): boolean => {
@@ -117,7 +121,7 @@ function hookNav(wc: Electron.WebContents, a: Account): (url: string) => boolean
       if (r.url !== url) wc.loadURL(r.url)
       return r.url === url
     }
-    if (r.action === 'external') void shell.openExternal(r.url)
+    if (r.action === 'external') openOut(r.url)
     return false
   }
   wc.on('will-navigate', (e, url) => {
@@ -128,7 +132,7 @@ function hookNav(wc: Electron.WebContents, a: Account): (url: string) => boolean
     const d = redirectAllowed(url, a)
     if (d.allow) return
     e.preventDefault()
-    if (d.open) void shell.openExternal(d.open)
+    if (d.open) openOut(d.open)
     if (d.load) wc.loadURL(d.load)
   })
   return go
@@ -187,7 +191,7 @@ function hookLinks(v: WebContentsView, a: Account): void {
     const target = openTarget(disposition, r.action)
     if (target === 'popup') openPopup(a, r.url)
     else if (target === 'same-view') wc.loadURL(r.url)
-    else if (target === 'external') void shell.openExternal(r.url)
+    else if (target === 'external') openOut(r.url)
     return { action: 'deny' }
   })
   wc.on('before-input-event', (e, input) => {
@@ -625,6 +629,7 @@ function createWindow(): BrowserWindow {
     } else {
       // Views keep running; they just leave the window. The renderer wipes its own account data on 'locked'.
       dialogOpen = false
+      pending = undefined
       popups.closeAll()
       if (attached) detach(win, attached)
       win.webContents.focus()
@@ -775,6 +780,31 @@ function createWindow(): BrowserWindow {
     hib.sleep(a.id)
     sleepAccount(a, 0)
     pushSleep()
+  })
+  // Links to another service (D40): none -> browser, one -> popup, several -> the renderer's chooser (one pending at a time).
+  let pending: { id: number; url: string; ids: string[] } | undefined
+  let choiceSeq = 0
+  openOut = (url) => {
+    const c = isUnlocked() ? candidatesFor(url, accounts, [...disabled]) : []
+    if (!c.length) return void shell.openExternal(url)
+    if (c.length === 1) return openPopup(c[0], url)
+    pending = { id: ++choiceSeq, url, ids: c.map((a) => a.id) }
+    showWindow()
+    win.webContents.send('links:choose', {
+      id: pending.id,
+      url,
+      candidates: c.map((a) => ({ id: a.id, label: a.label, colour: a.colour, serviceId: a.serviceId }))
+    })
+  }
+  gipc.on('links:chosen', (e: { sender: { id: number } }, id: unknown, choice: unknown) => {
+    const p = pending
+    if (!fromApp(e) || !p || id !== p.id) return
+    pending = undefined
+    if (choice === 'browser') void shell.openExternal(p.url)
+    else if (typeof choice === 'string' && p.ids.includes(choice)) {
+      const a = enabled().find((x) => x.id === choice)
+      if (a) openPopup(a, p.url)
+    }
   })
   gipc.on('ui:dialog', (_e: unknown, open: boolean) => setDialog(win, !!open))
   gipc.handle('accounts:mute', (_e: unknown, id: string, muted: boolean) => {

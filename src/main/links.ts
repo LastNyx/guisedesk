@@ -20,6 +20,17 @@ function sameService(host: string, account: Account): boolean {
   return hostsOf(account).some((h) => host === h || host.endsWith('.' + h))
 }
 
+/** The real target of a redirect wrapper (one level), else the url as given. */
+export function unwrap(raw: string): string {
+  try {
+    const u = new URL(raw)
+    const target = u.searchParams.get('u')
+    return WRAPPERS.has(u.hostname.toLowerCase()) && target ? target : raw
+  } catch {
+    return raw
+  }
+}
+
 export function route(raw: string, account: Account, depth = 0): Route {
   let u: URL
   try {

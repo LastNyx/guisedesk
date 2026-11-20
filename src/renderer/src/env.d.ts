@@ -4,6 +4,12 @@ declare module '*.vue' {
   export default component
 }
 
+interface LinkChoice {
+  id: number
+  url: string
+  candidates: { id: string; label: string; colour: string; serviceId: string }[]
+}
+
 interface AccountRow {
   id: string
   serviceId: string
@@ -86,6 +92,9 @@ interface Window {
     onZoom(cb: (s: Snapshot) => void): void
     /** Mute or unmute an account (D19). */
     mute(id: string, muted: boolean): Promise<Snapshot>
+    /** An external link matches several accounts (D40): pick one, 'browser', or null to cancel. */
+    onLinkChoose(cb: (r: LinkChoice) => void): void
+    chooseLink(id: number, choice: string | null): void
     /** Settings was opened from the tray. */
     onOpenSettings(cb: () => void): void
     /** Switch a whole service on or off (D6); sessions stay. */
