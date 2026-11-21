@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { countsAsInput } from './touch'
 import { parseHint, pickPostLink } from './postlink'
 import { blurCss, parseBlurHint, watchBlur } from './blur'
+import { parseDragHint, watchDragScroll } from './dragscroll'
 
 // Service views (flagged by main with --gd-service) get only a notification shim; the app bridge is not exposed to them.
 const service = process.argv.includes('--gd-service')
@@ -52,6 +53,13 @@ if (service) {
       e.preventDefault()
       ipcRenderer.send('popup:request', url)
     }, true)
+  }
+  // D44: drag to scroll sideways media rows (X).
+  if (parseDragHint(process.argv)) {
+    window.addEventListener('DOMContentLoaded', () => watchDragScroll(window, (e) => {
+      const s = getComputedStyle(e)
+      return { overflowX: s.overflowX, scrollWidth: e.scrollWidth, clientWidth: e.clientWidth }
+    }), { once: true })
   }
   // D42/D43: blur media until hovered. Main owns the flag (blur:state at start, blur:set live).
   const blur = parseBlurHint(process.argv)

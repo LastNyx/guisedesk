@@ -19,6 +19,8 @@ export interface Preset {
   postLink?: { container: string; link: string }
   /** Posts container whose big media (by rendered size) is blurred until hovered (D42, D43). */
   blurMedia?: { container: string }
+  /** Mouse drag scrolls sideways rows of media (D44). */
+  dragScroll?: boolean
 }
 
 // Plain Chrome UA, no Electron or app tokens (WhatsApp Web refuses Electron's).
@@ -50,6 +52,7 @@ const BLUR: Record<string, NonNullable<Preset['blurMedia']>> = {
   facebook: { container: '[role="article"]' }
 }
 for (const x of PRESETS) if (BLUR[x.id]) x.blurMedia = BLUR[x.id]
+for (const x of PRESETS) if (x.id === 'x') x.dragScroll = true
 
 /** Custom URL service: kind feed by default; start URL and hosts come from the account. */
 export const CUSTOM_PRESET_ID = 'custom'

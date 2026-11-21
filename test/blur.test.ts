@@ -16,6 +16,10 @@ describe('blurCss and the hint argument', () => {
     const css = blurCss()
     expect(css).toContain('[data-gd-blur]:not([data-gd-hover])')
     expect(css).toContain('filter: blur(28px)')
+    expect(css).toContain('[data-gd-blur][data-gd-hover]')
+    expect(css).toContain('filter: blur(0)')
+    expect(css).toContain('transition: filter 400ms ease-out')
+    expect(css).toContain('transition: filter 300ms ease-out')
     expect(css).not.toContain('cursor: pointer')
   })
   it('parses main argument (container only)', () => {

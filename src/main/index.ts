@@ -282,7 +282,7 @@ function viewFor(a: Account): WebContentsView {
         contextIsolation: true,
         devTools,
         preload: join(__dirname, '../preload/index.js'),
-        additionalArguments: ['--gd-service', ...(presetFor(a.serviceId)?.postLink ? ['--gd-postlink=' + JSON.stringify(presetFor(a.serviceId)!.postLink)] : []), ...(presetFor(a.serviceId)?.blurMedia ? ['--gd-blur=' + JSON.stringify(presetFor(a.serviceId)!.blurMedia)] : [])]
+        additionalArguments: ['--gd-service', ...(presetFor(a.serviceId)?.postLink ? ['--gd-postlink=' + JSON.stringify(presetFor(a.serviceId)!.postLink)] : []), ...(presetFor(a.serviceId)?.blurMedia ? ['--gd-blur=' + JSON.stringify(presetFor(a.serviceId)!.blurMedia)] : []), ...(presetFor(a.serviceId)?.dragScroll ? ['--gd-dragscroll'] : [])]
       }
     })
     owner.set(v.webContents.id, a)

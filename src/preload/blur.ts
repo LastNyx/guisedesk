@@ -8,7 +8,7 @@ const SCAN_MS = 50
 
 /** CSS that blurs media marked by the watcher until it is hovered. */
 export function blurCss(): string {
-  return '[data-gd-blur]:not([data-gd-hover]) { filter: blur(28px); }'
+  return '[data-gd-blur]:not([data-gd-hover]) { filter: blur(28px); transition: filter 300ms ease-out; }\n[data-gd-blur][data-gd-hover] { filter: blur(0); transition: filter 400ms ease-out; }'
 }
 
 /** True for img, video and background tiles (tag 'bg') whose rendered box is at least 100x100. */
