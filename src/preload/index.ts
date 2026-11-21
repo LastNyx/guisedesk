@@ -2,7 +2,7 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { countsAsInput } from './touch'
 import { parseHint, pickPostLink } from './postlink'
-import { blurCss, parseBlurHint, revealTarget } from './blur'
+import { blurCss, parseBlurHint, watchBlur } from './blur'
 
 // Service views (flagged by main with --gd-service) get only a notification shim; the app bridge is not exposed to them.
 const service = process.argv.includes('--gd-service')
@@ -53,31 +53,37 @@ if (service) {
       ipcRenderer.send('popup:request', url)
     }, true)
   }
-  // D42: blur media until clicked. Main owns the flag (blur:state at start, blur:set live).
+  // D42/D43: blur media until hovered. Main owns the flag (blur:state at start, blur:set live).
   const blur = parseBlurHint(process.argv)
   if (blur) {
     let key: string | null = null
-    let on = false
+    let watcher: { stop: () => void } | null = null
+    let want = false
+    // webFrame.insertCSS needs a document: wait for it and retry, and say so when it still fails.
+    const insert = async (): Promise<string | null> => {
+      for (let i = 0; i < 5; i++) {
+        try { return await webFrame.insertCSS(blurCss()) } catch (e) {
+          if (i === 4) console.warn('[guisedesk] blur css failed', e)
+          else await new Promise((r) => setTimeout(r, 200 * (i + 1)))
+        }
+      }
+      return null
+    }
     const apply = async (next: boolean) => {
-      on = next
-      if (on && key === null) key = await webFrame.insertCSS(blurCss(blur))
-      else if (!on && key !== null) {
-        const k = key
-        key = null
-        webFrame.removeInsertedCSS(k)
+      want = next
+      if (want && !watcher) {
+        if (document.readyState === 'loading') await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }))
+        if (!want || watcher) return
+        watcher = watchBlur(window, blur)
+        if (key === null) { const k = await insert(); if (want) key = k; else if (k) webFrame.removeInsertedCSS(k) }
+      } else if (!want) {
+        watcher?.stop()
+        watcher = null
+        if (key !== null) { const k = key; key = null; webFrame.removeInsertedCSS(k) }
       }
     }
-    ipcRenderer.invoke('blur:state').then((s) => apply(!!s)).catch(() => {})
+    ipcRenderer.invoke('blur:state').then((s) => apply(!!s)).catch((e) => console.warn('[guisedesk] blur state failed', e))
     ipcRenderer.on('blur:set', (_e, s) => void apply(!!s))
-    window.addEventListener('click', (e) => {
-      const t = e.target
-      if (!on || !(t instanceof Element)) return
-      const m = revealTarget(t, blur)
-      if (!m) return
-      m.setAttribute('data-gd-shown', '')
-      e.preventDefault()
-      e.stopPropagation()
-    }, true)
   }
 } else contextBridge.exposeInMainWorld('guisedesk', {
   lockState: () => ipcRenderer.invoke('lock:state'),

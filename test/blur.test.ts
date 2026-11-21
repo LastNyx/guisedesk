@@ -1,55 +1,129 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mount } from '@vue/test-utils'
-import { blurCss, parseBlurHint, revealTarget } from '../src/preload/blur'
+import { blurCss, parseBlurHint, shouldBlur, watchBlur } from '../src/preload/blur'
 import { addAccount, loadAccounts, setBlurMedia } from '../src/main/accounts'
 import { PRESETS } from '../src/main/presets'
 import AccountSheet from '../src/renderer/src/AccountSheet.vue'
 
-const hint = { container: 'article', media: 'picture, img, video', skip: 'img[alt*="profile picture"]' }
+const hint = { container: 'article' }
 
-describe('blurCss', () => {
-  it('blurs media inside the container, minus shown and skipped ones', () => {
-    const css = blurCss(hint)
-    expect(css).toContain('article :is(picture, img, video)')
-    expect(css).toContain(':not([data-gd-shown], [data-gd-shown] *)')
-    expect(css).toContain(':not(:is(img[alt*="profile picture"]))')
+describe('blurCss and the hint argument', () => {
+  it('blurs marked media until hovered, with no per-site media selectors', () => {
+    const css = blurCss()
+    expect(css).toContain('[data-gd-blur]:not([data-gd-hover])')
     expect(css).toContain('filter: blur(28px)')
-    expect(css).toContain('cursor: pointer')
-    expect(blurCss({ container: 'article', media: 'img' })).not.toContain('profile')
+    expect(css).not.toContain('cursor: pointer')
   })
-  it('parses main argument', () => {
-    expect(parseBlurHint(['--gd-blur=' + JSON.stringify(hint)])).toEqual(hint)
+  it('parses main argument (container only)', () => {
+    expect(parseBlurHint(['--gd-blur=' + JSON.stringify({ container: 'article', media: 'img', skip: 'x' })])).toEqual(hint)
     expect(parseBlurHint(['--gd-service'])).toBeNull()
     expect(parseBlurHint(['--gd-blur=nope'])).toBeNull()
   })
 })
 
-describe('revealTarget', () => {
+describe('shouldBlur', () => {
+  it('blurs img, video and background tiles of at least 100x100, never smaller ones or other tags', () => {
+    expect(shouldBlur({ w: 224, h: 280 }, 'IMG')).toBe(true)
+    expect(shouldBlur({ w: 100, h: 100 }, 'video')).toBe(true)
+    expect(shouldBlur({ w: 300, h: 200 }, 'bg')).toBe(true)
+    expect(shouldBlur({ w: 40, h: 40 }, 'IMG')).toBe(false)
+    expect(shouldBlur({ w: 500, h: 99 }, 'IMG')).toBe(false)
+    expect(shouldBlur({ w: 0, h: 0 }, 'PICTURE')).toBe(false)
+    expect(shouldBlur({ w: 500, h: 500 }, 'PICTURE')).toBe(false)
+  })
+})
+
+describe('watchBlur', () => {
+  const size = (el: Element, w: number, h: number) => { el.getBoundingClientRect = () => ({ width: w, height: h, left: 0, top: 0, right: w, bottom: h, x: 0, y: 0, toJSON() {} }) }
+  const el = (id: string) => document.getElementById(id)!
+  const flush = async () => { await Promise.resolve(); vi.advanceTimersByTime(100) }
+  let stop: (() => void) | null = null
   beforeEach(() => {
+    vi.useFakeTimers()
     document.body.innerHTML = `
       <article>
-        <img id="avatar" alt="zuck's profile picture">
-        <span id="text">hello</span>
-        <picture id="pic"><img id="inner"></picture>
+        <img id="avatar"><picture id="pic"><img id="photo"></picture>
         <video id="vid"></video>
+        <div id="tile" style="background-image: url(a.jpg)"></div>
+        <span id="text">hello</span>
+        <div id="wrap"><img id="ghost"></div>
       </article>
       <img id="outside">`
+    size(el('avatar'), 40, 40); size(el('pic'), 0, 0); size(el('photo'), 224, 280); size(el('vid'), 224, 280); size(el('tile'), 300, 200); size(el('outside'), 400, 400); size(el('wrap'), 224, 280); size(el('ghost'), 224, 280)
+    el('ghost').style.pointerEvents = 'none'
   })
-  const el = (id: string) => document.getElementById(id)!
-  it('returns the outermost unrevealed media, null for text, avatars and media outside a container', () => {
-    expect(revealTarget(el('inner'), hint)).toBe(el('pic'))
-    expect(revealTarget(el('vid'), hint)).toBe(el('vid'))
-    expect(revealTarget(el('text'), hint)).toBeNull()
-    expect(revealTarget(el('avatar'), hint)).toBeNull()
-    expect(revealTarget(el('outside'), hint)).toBeNull()
+  afterEach(() => { stop?.(); stop = null; vi.useRealTimers() })
+  const marked = () => [...document.querySelectorAll('[data-gd-blur]')].map((e) => e.id).sort()
+
+  it('marks big media inside the container only, not the picture wrapper, avatars or outside media', () => {
+    stop = watchBlur(window, hint).stop
+    expect(marked()).toEqual(['ghost', 'photo', 'tile', 'vid'])
   })
-  it('returns null once shown', () => {
-    el('pic').setAttribute('data-gd-shown', '')
-    expect(revealTarget(el('inner'), hint)).toBeNull()
+  it('marks media added later and media that grows, unmarks one that shrinks', async () => {
+    stop = watchBlur(window, hint).stop
+    const added = document.createElement('img')
+    added.id = 'added'
+    size(added, 200, 200)
+    document.querySelector('article')!.append(added)
+    await flush()
+    expect(marked()).toContain('added')
+    size(el('avatar'), 120, 120)
+    document.querySelector('article')!.append(document.createElement('i'))
+    await flush()
+    expect(marked()).toContain('avatar')
+    size(el('avatar'), 30, 30)
+    document.querySelector('article')!.append(document.createElement('i'))
+    await flush()
+    expect(marked()).not.toContain('avatar')
+  })
+  it('stop() removes every mark and hover', () => {
+    const w = watchBlur(window, hint)
+    w.stop()
+    expect(marked()).toEqual([])
+  })
+  it('a pointer resting 300 ms over media reveals it (through overlays), leaving blurs again', () => {
+    const overlay = document.createElement('div')
+    document.body.append(overlay)
+    stop = watchBlur(window, hint).stop
+    let stack: Element[] = [overlay, el('photo'), el('pic')]
+    document.elementsFromPoint = () => stack
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 5, clientY: 5 }))
+    vi.advanceTimersByTime(299)
+    expect(el('photo').hasAttribute('data-gd-hover')).toBe(false)
+    vi.advanceTimersByTime(2)
+    expect(el('photo').hasAttribute('data-gd-hover')).toBe(true)
+    expect(el('vid').hasAttribute('data-gd-hover')).toBe(false)
+    stack = [overlay]
+    vi.advanceTimersByTime(100)
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 900, clientY: 900 }))
+    expect(el('photo').hasAttribute('data-gd-hover')).toBe(false)
+  })
+  it('finds media with pointer-events none (Threads) through the box that holds it', () => {
+    stop = watchBlur(window, hint).stop
+    document.elementsFromPoint = () => [el('wrap')]
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 5, clientY: 5 }))
+    vi.advanceTimersByTime(301)
+    expect(el('ghost').hasAttribute('data-gd-hover')).toBe(true)
+    expect(el('photo').hasAttribute('data-gd-hover')).toBe(false)
+  })
+  it('moving away before 300 ms never reveals, and clicks are not intercepted', () => {
+    stop = watchBlur(window, hint).stop
+    let stack: Element[] = [el('vid')]
+    document.elementsFromPoint = () => stack
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 5, clientY: 5 }))
+    vi.advanceTimersByTime(200)
+    stack = []
+    vi.advanceTimersByTime(100)
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 900, clientY: 900 }))
+    vi.advanceTimersByTime(1000)
+    expect(el('vid').hasAttribute('data-gd-hover')).toBe(false)
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+    el('photo').dispatchEvent(click)
+    expect(click.defaultPrevented).toBe(false)
   })
 })
 

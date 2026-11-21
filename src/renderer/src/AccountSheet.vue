@@ -46,7 +46,7 @@ function logout() {
         <button class="tg" :class="{ on: account.muted }" role="switch" :aria-checked="!!account.muted" aria-label="Mute" @click="emit('mute', !account.muted)"></button>
       </div>
       <div v-if="presetFor(account.serviceId)?.blurMedia" class="sr mute">
-        <span class="t"><b>Blur media until clicked</b><span>Photos and video stay blurred until you click them</span></span>
+        <span class="t"><b>Blur media until clicked</b><span>Photos and video stay blurred until you hover over them</span></span>
         <button class="tg" :class="{ on: account.blurMedia }" role="switch" :aria-checked="!!account.blurMedia" aria-label="Blur media until clicked" @click="emit('blur', !account.blurMedia)"></button>
       </div>
       <div v-if="host" class="hint share">Shares login with {{ host.label }}</div>
