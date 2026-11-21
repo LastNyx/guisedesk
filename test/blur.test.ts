@@ -145,13 +145,13 @@ describe('presets and the stored flag', () => {
 describe('AccountSheet blur toggle', () => {
   const acc = (serviceId: string, blurMedia?: boolean) => ({ id: 'a1', serviceId, label: 'L', colour: '#6d5bd0', blurMedia })
   it('is shown only for services with a hint and emits the flipped value', async () => {
-    for (const s of ['x', 'threads', 'instagram', 'facebook']) expect(mount(AccountSheet, { props: { account: acc(s) } }).find('[aria-label="Blur media until clicked"]').exists()).toBe(true)
-    for (const s of ['whatsapp', 'discord', 'tiktok']) expect(mount(AccountSheet, { props: { account: acc(s) } }).find('[aria-label="Blur media until clicked"]').exists()).toBe(false)
+    for (const s of ['x', 'threads', 'instagram', 'facebook']) expect(mount(AccountSheet, { props: { account: acc(s) } }).find('[aria-label="Blur media until hovered"]').exists()).toBe(true)
+    for (const s of ['whatsapp', 'discord', 'tiktok']) expect(mount(AccountSheet, { props: { account: acc(s) } }).find('[aria-label="Blur media until hovered"]').exists()).toBe(false)
     const w = mount(AccountSheet, { props: { account: acc('x') } })
-    const t = w.find('[aria-label="Blur media until clicked"]')
+    const t = w.find('[aria-label="Blur media until hovered"]')
     expect(t.attributes('aria-checked')).toBe('false')
     await t.trigger('click')
     expect(w.emitted('blur')![0]).toEqual([true])
-    expect(mount(AccountSheet, { props: { account: acc('x', true) } }).find('[aria-label="Blur media until clicked"]').attributes('aria-checked')).toBe('true')
+    expect(mount(AccountSheet, { props: { account: acc('x', true) } }).find('[aria-label="Blur media until hovered"]').attributes('aria-checked')).toBe('true')
   })
 })

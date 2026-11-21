@@ -96,7 +96,7 @@ interface Window {
     onZoom(cb: (s: Snapshot) => void): void
     /** Mute or unmute an account (D19). */
     mute(id: string, muted: boolean): Promise<Snapshot>
-    /** Blur media in an account's view until clicked (D42). */
+    /** Blur media in an account's view until hovered (D42, D43). */
     setBlur(id: string, on: boolean): Promise<Snapshot>
     /** An external link matches several accounts (D40): pick one, 'browser', or null to cancel. */
     onLinkChoose(cb: (r: LinkChoice) => void): void

@@ -12,7 +12,7 @@ export interface Account {
   order: number
   idlePolicy?: string
   muted?: boolean
-  /** Blur media in the service view until clicked (D42). */
+  /** Blur media in the service view until hovered (D42, D43). */
   blurMedia?: boolean
   /** Chromium zoom level (D32); missing = 0 (100%). */
   zoom?: number
