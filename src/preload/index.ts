@@ -137,6 +137,8 @@ if (service) {
   downloads: () => ipcRenderer.invoke('downloads:get'),
   setDownloadsAsk: (ask: boolean) => ipcRenderer.invoke('downloads:set', { ask }),
   pickDownloadsDir: () => ipcRenderer.invoke('downloads:pick'),
+  blocking: () => ipcRenderer.invoke('blocking:get'),
+  setBlocking: (v: { ads?: boolean; popups?: boolean }) => ipcRenderer.invoke('blocking:set', v),
   add: (input: unknown) => ipcRenderer.invoke('accounts:add', input),
   onLinkChoose: (cb: (r: unknown) => void) => ipcRenderer.on('links:choose', (_e, r) => cb(r)),
   chooseLink: (id: number, choice: string | null) => ipcRenderer.send('links:chosen', id, choice),
