@@ -2,6 +2,7 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { countsAsInput } from './touch'
 import { parseHint, pickPostLink } from './postlink'
+import { blurCss, parseBlurHint, revealTarget } from './blur'
 
 // Service views (flagged by main with --gd-service) get only a notification shim; the app bridge is not exposed to them.
 const service = process.argv.includes('--gd-service')
@@ -52,6 +53,32 @@ if (service) {
       ipcRenderer.send('popup:request', url)
     }, true)
   }
+  // D42: blur media until clicked. Main owns the flag (blur:state at start, blur:set live).
+  const blur = parseBlurHint(process.argv)
+  if (blur) {
+    let key: string | null = null
+    let on = false
+    const apply = async (next: boolean) => {
+      on = next
+      if (on && key === null) key = await webFrame.insertCSS(blurCss(blur))
+      else if (!on && key !== null) {
+        const k = key
+        key = null
+        webFrame.removeInsertedCSS(k)
+      }
+    }
+    ipcRenderer.invoke('blur:state').then((s) => apply(!!s)).catch(() => {})
+    ipcRenderer.on('blur:set', (_e, s) => void apply(!!s))
+    window.addEventListener('click', (e) => {
+      const t = e.target
+      if (!on || !(t instanceof Element)) return
+      const m = revealTarget(t, blur)
+      if (!m) return
+      m.setAttribute('data-gd-shown', '')
+      e.preventDefault()
+      e.stopPropagation()
+    }, true)
+  }
 } else contextBridge.exposeInMainWorld('guisedesk', {
   lockState: () => ipcRenderer.invoke('lock:state'),
   onLock: (cb: (info: unknown) => void) => ipcRenderer.on('lock:changed', (_e, info) => cb(info)),
@@ -83,6 +110,7 @@ if (service) {
   resetZoom: (id: string) => ipcRenderer.invoke('accounts:zoom-reset', id),
   onZoom: (cb: (s: unknown) => void) => ipcRenderer.on('accounts:zoom', (_e, s) => cb(s)),
   mute: (id: string, muted: boolean) => ipcRenderer.invoke('accounts:mute', id, muted),
+  setBlur: (id: string, on: boolean) => ipcRenderer.invoke('accounts:blur', id, on),
   onOpenSettings: (cb: () => void) => ipcRenderer.on('settings:open', () => cb()),
   setServiceEnabled: (serviceId: string, enabled: boolean) => ipcRenderer.invoke('services:set', serviceId, enabled),
   setPolicy: (id: string, policy: string) => ipcRenderer.invoke('accounts:policy', id, policy),

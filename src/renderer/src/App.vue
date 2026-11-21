@@ -119,6 +119,10 @@ async function mute(id: string, muted: boolean) {
   take(await window.guisedesk.mute(id, muted))
 }
 
+async function setBlur(id: string, on: boolean) {
+  take(await window.guisedesk.setBlur(id, on))
+}
+
 async function resetZoom(id: string) {
   take(await window.guisedesk.resetZoom(id))
 }
@@ -240,6 +244,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
       :accounts="accounts"
       @policy="(v) => setPolicy(sheetAccount!.id, v)"
       @mute="(m) => mute(sheetAccount!.id, m)"
+      @blur="(on) => setBlur(sheetAccount!.id, on)"
       @logout="logout(sheetAccount!.id)"
       @remove="removeAccount(sheetAccount!.id)"
       @done="sheetId = undefined"

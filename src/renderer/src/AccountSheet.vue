@@ -9,12 +9,12 @@ import { logoStyle } from './logos'
 
 const props = defineProps<{
   account: {
-    id: string; serviceId: string; label: string; colour: string; idlePolicy?: string; muted?: boolean; shareWith?: string
+    id: string; serviceId: string; label: string; colour: string; idlePolicy?: string; muted?: boolean; blurMedia?: boolean; shareWith?: string
     custom?: { name: string; icon?: string }
   }
   accounts?: { id: string; serviceId: string; label: string; shareWith?: string }[]
 }>()
-const emit = defineEmits<{ policy: [value: string]; mute: [muted: boolean]; logout: []; remove: []; done: [] }>()
+const emit = defineEmits<{ policy: [value: string]; mute: [muted: boolean]; blur: [on: boolean]; logout: []; remove: []; done: [] }>()
 
 const confirming = ref(false)
 const loggedOut = ref(false)
@@ -44,6 +44,10 @@ function logout() {
       <div class="sr mute">
         <span class="t"><b>Mute</b><span>Keep the count, skip pop-ups</span></span>
         <button class="tg" :class="{ on: account.muted }" role="switch" :aria-checked="!!account.muted" aria-label="Mute" @click="emit('mute', !account.muted)"></button>
+      </div>
+      <div v-if="presetFor(account.serviceId)?.blurMedia" class="sr mute">
+        <span class="t"><b>Blur media until clicked</b><span>Photos and video stay blurred until you click them</span></span>
+        <button class="tg" :class="{ on: account.blurMedia }" role="switch" :aria-checked="!!account.blurMedia" aria-label="Blur media until clicked" @click="emit('blur', !account.blurMedia)"></button>
       </div>
       <div v-if="host" class="hint share">Shares login with {{ host.label }}</div>
       <div v-else-if="others.length" class="hint share">Login shared with {{ others.map((a) => a.label).join(', ') }}</div>

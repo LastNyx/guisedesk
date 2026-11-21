@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { appRoot, dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setServiceEnabled, setZoom, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setServiceEnabled, setZoom, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -282,7 +282,7 @@ function viewFor(a: Account): WebContentsView {
         contextIsolation: true,
         devTools,
         preload: join(__dirname, '../preload/index.js'),
-        additionalArguments: ['--gd-service', ...(presetFor(a.serviceId)?.postLink ? ['--gd-postlink=' + JSON.stringify(presetFor(a.serviceId)!.postLink)] : [])]
+        additionalArguments: ['--gd-service', ...(presetFor(a.serviceId)?.postLink ? ['--gd-postlink=' + JSON.stringify(presetFor(a.serviceId)!.postLink)] : []), ...(presetFor(a.serviceId)?.blurMedia ? ['--gd-blur=' + JSON.stringify(presetFor(a.serviceId)!.blurMedia)] : [])]
       }
     })
     owner.set(v.webContents.id, a)
@@ -493,6 +493,8 @@ function createWindow(): BrowserWindow {
   touchIdle = triggers.touch
   setInterval(triggers.check, 10_000).unref()
   ipcMain.removeAllListeners('idle:touch')
+  ipcMain.removeHandler('blur:state')
+  ipcMain.handle('blur:state', (e) => !!owner.get(e.sender.id)?.blurMedia)
   ipcMain.on('popup:request', (e, url) => {
     const a = owner.get(e.sender.id)
     const u = a && isUnlocked() ? acceptPopupRequest(url, a) : null
@@ -824,6 +826,15 @@ function createWindow(): BrowserWindow {
     // The notification path reads the Account captured when the view was built: keep it current.
     const held = owner.get(views.get(id)?.webContents.id ?? -1)
     if (held) held.muted = !!muted
+    return snapshot()
+  })
+  gipc.handle('accounts:blur', (_e: unknown, id: string, on: boolean) => {
+    if (!accounts.some((a) => a.id === id)) return snapshot()
+    accounts = orderedAccounts(setBlurMedia(dir, id, !!on))
+    const v = views.get(id)
+    const held = owner.get(v?.webContents.id ?? -1)
+    if (held) held.blurMedia = !!on
+    if (v && !v.webContents.isDestroyed()) v.webContents.send('blur:set', !!on)
     return snapshot()
   })
   gipc.handle('accounts:add', async (_e: unknown, input: any) => {

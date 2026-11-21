@@ -12,6 +12,8 @@ export interface Account {
   order: number
   idlePolicy?: string
   muted?: boolean
+  /** Blur media in the service view until clicked (D42). */
+  blurMedia?: boolean
   /** Chromium zoom level (D32); missing = 0 (100%). */
   zoom?: number
   /** Host account id whose session partition this account uses (D36). */
@@ -81,6 +83,13 @@ export function saveSelected(dir: string, id: string): void {
 /** Sets one account's muted flag (D19) and returns the saved list. */
 export function setMuted(dir: string, id: string, muted: boolean): Account[] {
   const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, muted } : a))
+  saveAccounts(dir, accounts)
+  return accounts
+}
+
+/** Sets one account's blur-media flag (D42) and returns the saved list. */
+export function setBlurMedia(dir: string, id: string, blurMedia: boolean): Account[] {
+  const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, blurMedia } : a))
   saveAccounts(dir, accounts)
   return accounts
 }

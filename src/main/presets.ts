@@ -17,6 +17,8 @@ export interface Preset {
   family?: 'meta'
   /** Selectors for a post that is not a link: its container and the permalink inside it (D38). */
   postLink?: { container: string; link: string }
+  /** Selectors for media to blur until clicked: container, media inside it, and media to leave alone (D42). */
+  blurMedia?: { container: string; media: string; skip?: string }
 }
 
 // Plain Chrome UA, no Electron or app tokens (WhatsApp Web refuses Electron's).
@@ -39,6 +41,15 @@ export const PRESETS: Preset[] = [
   p('tiktok', 'TikTok', 'https://www.tiktok.com/', 'T', '#000000', 'feed', ['tiktok.com', 'tiktokcdn.com', 'tiktokv.com'], ['tiktok.com'])
 ].map((x) => (META.includes(x.id) ? { ...x, family: 'meta' as const } : x))
   .map((x) => (x.id === 'threads' ? { ...x, postLink: { container: '[data-pressable-container]', link: 'a[href*="/post/"]' } } : x))
+
+// Best effort selectors (D42); they drift as the sites change.
+const BLUR: Record<string, NonNullable<Preset['blurMedia']>> = {
+  x: { container: 'article[data-testid="tweet"]', media: '[data-testid="tweetPhoto"], [data-testid="videoPlayer"], [data-testid="card.layoutLarge.media"]' },
+  threads: { container: '[data-pressable-container]', media: 'picture, img, video', skip: 'img[alt*="profile picture"]' },
+  instagram: { container: 'article', media: 'img, video', skip: 'img[alt*="profile picture"]' },
+  facebook: { container: '[role="article"]', media: 'img, video', skip: 'svg image, img[height="40"], img[width="40"]' }
+}
+for (const x of PRESETS) if (BLUR[x.id]) x.blurMedia = BLUR[x.id]
 
 /** Custom URL service: kind feed by default; start URL and hosts come from the account. */
 export const CUSTOM_PRESET_ID = 'custom'
