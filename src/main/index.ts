@@ -13,6 +13,8 @@ import { presetFor, CHROME_UA } from './presets'
 import { redirectAllowed, route } from './links'
 import { candidatesFor } from './servicelinks'
 import { acceptPopupRequest, createPopups, openTarget } from './popups'
+import { isGesture, loadBlocking, popupBlocked, saveBlocking, type BlockingSettings } from './blocking'
+import { isAdPopup, setSessionBlocking } from './adblock'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
@@ -113,6 +115,29 @@ const popups = createPopups<BrowserWindow>((w) => {
 // An external link (D40): set in createWindow, which owns the account list and the window. Default: the browser.
 let openOut: (url: string) => void = (url) => void shell.openExternal(url)
 
+// Ad and pop-up blocking (D45): read once, changed from Settings > General. Sessions seen so far get the ad blocker.
+let blocking: BlockingSettings = loadBlocking(dir)
+const blockSessions = new Set<Electron.Session>()
+function hookBlocking(ses: Electron.Session): void {
+  blockSessions.add(ses)
+  void setSessionBlocking(dir, ses, blocking.ads)
+}
+// Last click, tap or key press per webContents, for the pop-up rule.
+const lastGesture = new Map<number, number>()
+function trackGestures(wc: Electron.WebContents): void {
+  const id = wc.id
+  wc.on('input-event', (_e, i) => {
+    if (isGesture(i.type)) lastGesture.set(id, Date.now())
+  })
+  wc.once('destroyed', () => lastGesture.delete(id))
+}
+/** A window the page opened on its own (no recent click or key), or an ad click-through page: dropped silently. */
+function blockedPopup(wc: Electron.WebContents, url: string): boolean {
+  if (!blocking.popups) return false
+  if (popupBlocked({ on: true, now: Date.now(), lastGesture: lastGesture.get(wc.id) })) return true
+  return blocking.ads && isAdPopup(url, wc.getURL())
+}
+
 /** Link rules (D8) shared by a service view and its popups: in-app stays, external goes to the browser, redirects are checked. */
 function hookNav(wc: Electron.WebContents, a: Account): (url: string) => boolean {
   const go = (url: string): boolean => {
@@ -152,7 +177,10 @@ function openPopup(a: Account, url: string): void {
   const wc = w.webContents
   wc.setUserAgent(presetFor(a.serviceId)?.userAgent ?? CHROME_UA)
   const go = hookNav(wc, a)
+  trackGestures(wc)
+  hookBlocking(wc.session)
   wc.setWindowOpenHandler(({ url: u }) => {
+    if (blockedPopup(wc, u)) return { action: 'deny' }
     const r = route(u, a)
     if (r.action === 'in-app') wc.loadURL(r.url)
     else go(u)
@@ -186,7 +214,9 @@ function openPopup(a: Account, url: string): void {
 function hookLinks(v: WebContentsView, a: Account): void {
   const wc = v.webContents
   hookNav(wc, a)
+  trackGestures(wc)
   wc.setWindowOpenHandler(({ url, disposition }) => {
+    if (blockedPopup(wc, url)) return { action: 'deny' }
     const r = route(url, a)
     const target = openTarget(disposition, r.action)
     if (target === 'popup') openPopup(a, r.url)
@@ -288,6 +318,7 @@ function viewFor(a: Account): WebContentsView {
     owner.set(v.webContents.id, a)
     const ses = v.webContents.session
     hookDownloads(ses)
+    hookBlocking(ses)
     ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permissionAllowed(permission)))
     ses.setPermissionCheckHandler((_wc, permission) => permissionAllowed(permission))
     const preset = presetFor(a.serviceId)
@@ -553,6 +584,20 @@ function createWindow(): BrowserWindow {
     const picked = r.canceled ? undefined : r.filePaths[0]
     if (picked) saveDownloads(dir, { ...loadDownloads(dir), dir: picked })
     return picked
+  })
+  // Ad and pop-up blocking (D45): Settings > General. Ads apply to every open session at once; pop-ups to the next window.open.
+  gipc.handle('blocking:get', (e: { sender: { id: number } }) => (fromApp(e) ? blocking : undefined))
+  gipc.handle('blocking:set', async (e: { sender: { id: number } }, v: { ads?: unknown; popups?: unknown }) => {
+    if (!fromApp(e) || !v || typeof v !== 'object') return false
+    const next = { ads: typeof v.ads === 'boolean' ? v.ads : blocking.ads, popups: typeof v.popups === 'boolean' ? v.popups : blocking.popups }
+    const adsChanged = next.ads !== blocking.ads
+    blocking = next
+    saveBlocking(dir, next)
+    if (adsChanged) {
+      await Promise.all([...blockSessions].map((ses) => setSessionBlocking(dir, ses, next.ads)))
+      for (const v of views.values()) if (!v.webContents.isDestroyed()) v.webContents.reload()
+    }
+    return true
   })
   // Settings > Lock, Notifications, General. All behind the guard; the idle choice reaches the running timer.
   const autostartOpts = () => ({ env: process.env, home: homedir(), appPath: appRoot(app.getAppPath(), existsSync) })

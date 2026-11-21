@@ -120,6 +120,9 @@ interface Window {
     downloads(): Promise<{ dir: string; ask: boolean }>
     setDownloadsAsk(ask: boolean): Promise<boolean>
     pickDownloadsDir(): Promise<string | undefined>
+    /** Ad and pop-up blocking (D45): both on by default; setBlocking saves and applies (ads reload the open views). */
+    blocking(): Promise<{ ads: boolean; popups: boolean }>
+    setBlocking(v: { ads?: boolean; popups?: boolean }): Promise<boolean>
     add(input: {
       serviceId: string
       label: string
