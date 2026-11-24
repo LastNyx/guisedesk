@@ -10,7 +10,7 @@
     "noEmit": true,
     "isolatedModules": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["node", "vite/client"]
+    "types": ["node", "vite/client", "electron-vite/node"]
   },
   "include": ["src/**/*.ts", "src/**/*.vue", "test/**/*.ts", "*.config.ts", "*.config.mts"]
 }

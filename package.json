@@ -26,6 +26,8 @@
     "vue-tsc": "^3.3.14"
   },
   "dependencies": {
-    "@ghostery/adblocker-electron": "^2.20.3"
+    "@ghostery/adblocker": "2.20.3",
+    "@ghostery/adblocker-electron": "2.20.3",
+    "@ghostery/adblocker-electron-preload": "2.20.3"
   }
 }

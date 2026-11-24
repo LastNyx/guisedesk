@@ -13,8 +13,11 @@ import { presetFor, CHROME_UA } from './presets'
 import { redirectAllowed, route } from './links'
 import { candidatesFor } from './servicelinks'
 import { acceptPopupRequest, createPopups, openTarget } from './popups'
-import { isGesture, loadBlocking, popupBlocked, saveBlocking, type BlockingSettings } from './blocking'
-import { isAdPopup, setSessionBlocking } from './adblock'
+import { blockedLine, isGesture, loadBlocking, popupBlocked, saveBlocking, type BlockingSettings } from './blocking'
+import { createAdblock } from './adblock'
+import { buildInWorker, loadEngineBytes, PRELOAD_PATH } from './adengine'
+import { createBlockState } from './blockstate'
+import { createDispatcher } from './webrequest'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
@@ -117,25 +120,68 @@ let openOut: (url: string) => void = (url) => void shell.openExternal(url)
 
 // Ad and pop-up blocking (D45): read once, changed from Settings > General. Sessions seen so far get the ad blocker.
 let blocking: BlockingSettings = loadBlocking(dir)
+// Top bar chips: blocked count per account, last dropped pop-up. onBlockChange is set in createWindow (it owns the window).
+let onBlockChange: () => void = () => {}
+const blockState = createBlockState(() => onBlockChange())
+// webContents id -> account id, for service views and their popups (the blocked count and the pop-up chip).
+const wcAccount = new Map<number, string>()
+const adblock = createAdblock({
+  dir,
+  build: buildInWorker,
+  load: loadEngineBytes,
+  handle: (ch, fn) => ipcMain.handle(ch, fn),
+  preloadPath: PRELOAD_PATH,
+  wanted: () => blocking.ads,
+  onBlocked: (wcId) => {
+    const id = wcAccount.get(wcId)
+    if (id) blockState.blocked(id)
+  }
+})
+// One webRequest dispatcher per session: features add named handlers, removing one never clears another.
+const dispatchers = new WeakMap<Electron.Session, ReturnType<typeof createDispatcher>>()
+const dispatcherFor = (ses: Electron.Session) => {
+  let d = dispatchers.get(ses)
+  if (!d) dispatchers.set(ses, (d = createDispatcher(ses.webRequest as never)))
+  return d
+}
 const blockSessions = new Set<Electron.Session>()
 function hookBlocking(ses: Electron.Session): void {
   blockSessions.add(ses)
-  void setSessionBlocking(dir, ses, blocking.ads)
+  void adblock.setSession(ses, dispatcherFor(ses), blocking.ads)
 }
-// Last click, tap or key press per webContents, for the pop-up rule.
+// Last click, tap or key press per webContents, for the pop-up rule. Also tags the webContents with its account and
+// resets the account's chips on each main-frame navigation.
 const lastGesture = new Map<number, number>()
-function trackGestures(wc: Electron.WebContents): void {
+function trackGestures(wc: Electron.WebContents, accountId: string, isView: boolean): void {
   const id = wc.id
+  wcAccount.set(id, accountId)
   wc.on('input-event', (_e, i) => {
     if (isGesture(i.type)) lastGesture.set(id, Date.now())
   })
-  wc.once('destroyed', () => lastGesture.delete(id))
+  if (isView) wc.on('did-start-navigation', (d) => {
+    if (d.isMainFrame && !d.isSameDocument) blockState.navigated(accountId)
+  })
+  wc.once('destroyed', () => {
+    lastGesture.delete(id)
+    wcAccount.delete(id)
+  })
 }
-/** A window the page opened on its own (no recent click or key), or an ad click-through page: dropped silently. */
-function blockedPopup(wc: Electron.WebContents, url: string): boolean {
+/**
+ * The pop-up rule (D45, D37 amendment): a window the page opened with no click or key in the last 5 s, or an ad
+ * click-through page, is dropped, logged and offered in the top bar ("Pop-up blocked", open anyway).
+ * Middle-click / Ctrl+click on a link (disposition background-tab) and sign-in pages are always allowed.
+ */
+function blockedPopup(wc: Electron.WebContents, accountId: string, url: string, disposition?: string): boolean {
   if (!blocking.popups) return false
-  if (popupBlocked({ on: true, now: Date.now(), lastGesture: lastGesture.get(wc.id) })) return true
-  return blocking.ads && isAdPopup(url, wc.getURL())
+  const now = Date.now()
+  const last = lastGesture.get(wc.id)
+  const dropped =
+    popupBlocked({ on: true, now, lastGesture: last, disposition, url }) ||
+    (blocking.ads && disposition !== 'background-tab' && adblock.isAdPopup(url, wc.getURL()))
+  if (!dropped) return false
+  console.warn(blockedLine(url, now, last))
+  blockState.popup(accountId, url)
+  return true
 }
 
 /** Link rules (D8) shared by a service view and its popups: in-app stays, external goes to the browser, redirects are checked. */
@@ -177,10 +223,10 @@ function openPopup(a: Account, url: string): void {
   const wc = w.webContents
   wc.setUserAgent(presetFor(a.serviceId)?.userAgent ?? CHROME_UA)
   const go = hookNav(wc, a)
-  trackGestures(wc)
+  trackGestures(wc, a.id, false)
   hookBlocking(wc.session)
-  wc.setWindowOpenHandler(({ url: u }) => {
-    if (blockedPopup(wc, u)) return { action: 'deny' }
+  wc.setWindowOpenHandler(({ url: u, disposition }) => {
+    if (blockedPopup(wc, a.id, u, disposition)) return { action: 'deny' }
     const r = route(u, a)
     if (r.action === 'in-app') wc.loadURL(r.url)
     else go(u)
@@ -210,18 +256,23 @@ function openPopup(a: Account, url: string): void {
   void wc.loadURL(url)
 }
 
+/** Where a window.open from a service view goes (D8, D37): popup, same view, the browser, or nowhere. */
+function openFromView(wc: Electron.WebContents, a: Account, url: string, disposition: string): void {
+  const r = route(url, a)
+  const target = openTarget(disposition, r.action)
+  if (target === 'popup') openPopup(a, r.url)
+  else if (target === 'same-view') wc.loadURL(r.url)
+  else if (target === 'external') openOut(r.url)
+}
+
 /** Link policy (D8): in-app loads in this view; a tab-style open (D37) gets a popup; mailto goes out; the rest is denied or external. */
 function hookLinks(v: WebContentsView, a: Account): void {
   const wc = v.webContents
   hookNav(wc, a)
-  trackGestures(wc)
+  trackGestures(wc, a.id, true)
   wc.setWindowOpenHandler(({ url, disposition }) => {
-    if (blockedPopup(wc, url)) return { action: 'deny' }
-    const r = route(url, a)
-    const target = openTarget(disposition, r.action)
-    if (target === 'popup') openPopup(a, r.url)
-    else if (target === 'same-view') wc.loadURL(r.url)
-    else if (target === 'external') openOut(r.url)
+    if (blockedPopup(wc, a.id, url, disposition)) return { action: 'deny' }
+    openFromView(wc, a, url, disposition)
     return { action: 'deny' }
   })
   wc.on('before-input-event', (e, input) => {
@@ -594,9 +645,25 @@ function createWindow(): BrowserWindow {
     blocking = next
     saveBlocking(dir, next)
     if (adsChanged) {
-      await Promise.all([...blockSessions].map((ses) => setSessionBlocking(dir, ses, next.ads)))
+      await Promise.all([...blockSessions].map((ses) => adblock.setSession(ses, dispatcherFor(ses), next.ads)))
       for (const v of views.values()) if (!v.webContents.isDestroyed()) v.webContents.reload()
     }
+    pushBlock()
+    return true
+  })
+  // Top bar chips (D45): counts and the dropped pop-up per account; "open anyway" runs the normal window.open handling.
+  const pushBlock = () => {
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('block:update', { ads: blocking.ads, accounts: blockState.snapshot() })
+  }
+  onBlockChange = pushBlock
+  gipc.handle('block:state', (e: { sender: { id: number } }) => (fromApp(e) ? { ads: blocking.ads, accounts: blockState.snapshot() } : undefined))
+  gipc.handle('block:open-popup', (e: { sender: { id: number } }, id: string) => {
+    if (!fromApp(e) || typeof id !== 'string') return false
+    const a = accounts.find((x) => x.id === id)
+    const v = views.get(id)
+    const url = a && v && !v.webContents.isDestroyed() ? blockState.take(id) : undefined
+    if (!a || !v || !url) return false
+    openFromView(v.webContents, a, url, 'foreground-tab')
     return true
   })
   // Settings > Lock, Notifications, General. All behind the guard; the idle choice reaches the running timer.
@@ -798,6 +865,7 @@ function createWindow(): BrowserWindow {
     accounts = orderedAccounts(loadAccounts(dir))
     delete counts[id]
     delete sleepState[id]
+    blockState.forget(id)
     reconcile()
     push()
     pushSleep()

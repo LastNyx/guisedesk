@@ -23,7 +23,7 @@ onMounted(async () => {
   dl.value = await window.guisedesk.downloads()
 })
 
-const block = ref({ ads: true, popups: true })
+const block = ref({ ads: false, popups: true })
 onMounted(async () => {
   const b = await window.guisedesk.blocking?.()
   if (b) block.value = b
@@ -73,11 +73,11 @@ async function toggle() {
     <div class="card">
       <h4>Blocking</h4>
       <div class="sr">
-        <span class="t"><b>Block ads and trackers</b><span>EasyList and uBlock Origin lists, in every account. Open pages reload.</span></span>
+        <span class="t"><b>Block ads and trackers</b><span>EasyList and uBlock Origin ad and tracker lists, in every account. Open pages reload.</span></span>
         <button class="tg" :class="{ on: block.ads }" role="switch" :aria-checked="block.ads" aria-label="Block ads and trackers" @click="toggleBlock('ads')"></button>
       </div>
       <div class="sr">
-        <span class="t"><b>Block pop-ups</b><span>Windows a page opens without a click, and ad pages, are dropped.</span></span>
+        <span class="t"><b>Block pop-ups</b><span>Windows a page opens without a click, and ad pages, are dropped. Middle-click and sign-in windows still open.</span></span>
         <button class="tg" :class="{ on: block.popups }" role="switch" :aria-checked="block.popups" aria-label="Block pop-ups" @click="toggleBlock('popups')"></button>
       </div>
     </div>
