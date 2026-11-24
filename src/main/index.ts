@@ -247,7 +247,7 @@ function hookContextMenu(wc: Electron.WebContents): void {
     // Service views only (owner map), not popups or the app UI (D46).
     const me = owner.get(wc.id)
     const sibs = me && isUnlocked() ? siblingsOf(me) : []
-    const post = sibs.length && !(p.linkURL && pickTarget(p.linkURL, null, '', homesOf(me!))) ? await postAt(wc, p.x, p.y) : null
+    const post = sibs.length && !(p.linkURL && pickTarget(p.linkURL, null, '', homesOf(me!))) ? await postAt(wc, p.x / wc.getZoomFactor(), p.y / wc.getZoomFactor()) : null
     const items = buildContextMenu(p, { canGoBack: nav.canGoBack(), canGoForward: nav.canGoForward(), locked: !isUnlocked(), siblings: sibs.length })
     if (!items.length) return
     const run = (action: string, value?: string) => {
