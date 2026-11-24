@@ -14,6 +14,8 @@ export interface MenuState {
   canGoBack: boolean
   canGoForward: boolean
   locked: boolean
+  /** Other accounts of this service on another partition (D46). */
+  siblings?: number
 }
 
 export interface MenuItem {
@@ -38,6 +40,7 @@ export function buildContextMenu(p: MenuParams, s: MenuState): MenuEntry[] {
     g.push(item('Copy link address', 'copy-link'))
     groups.push(g)
   }
+  if (s.siblings) groups.push([item('Open in another account', 'open-in-other')])
   if (p.mediaType === 'image' && p.srcURL)
     groups.push([item('Save image', 'save-image'), item('Copy image', 'copy-image'), item('Copy image address', 'copy-image-address')])
   if (p.isEditable) {

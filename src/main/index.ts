@@ -11,7 +11,7 @@ import { cacheFavicon, readIcon, type Fetcher } from './favicon'
 import { validateNewAccount } from './validate'
 import { presetFor, CHROME_UA } from './presets'
 import { redirectAllowed, route } from './links'
-import { candidatesFor } from './servicelinks'
+import { candidatesFor, homesOf, pickTarget, siblingsFor } from './servicelinks'
 import { acceptPopupRequest, createPopups, openTarget } from './popups'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
@@ -112,6 +112,26 @@ const popups = createPopups<BrowserWindow>((w) => {
 
 // An external link (D40): set in createWindow, which owns the account list and the window. Default: the browser.
 let openOut: (url: string) => void = (url) => void shell.openExternal(url)
+// Open in another account (D46): set in createWindow too. siblingsOf lists the other-partition accounts of the service.
+let siblingsOf: (a: Account) => Account[] = () => []
+let openIn: (url: string, c: Account[]) => void = () => {}
+// Post under the cursor (D46): main asks the service preload, which answers on 'post:at-result'.
+const postWaiters = new Map<number, (url: string | null) => void>()
+let postSeq = 0
+function postAt(wc: Electron.WebContents, x: number, y: number): Promise<string | null> {
+  if (!presetFor(owner.get(wc.id)?.serviceId ?? '')?.postLink) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    const id = ++postSeq
+    const done = (u: string | null) => {
+      clearTimeout(t)
+      postWaiters.delete(id)
+      resolve(u)
+    }
+    const t = setTimeout(() => done(null), 150)
+    postWaiters.set(id, done)
+    wc.send('post:at', id, x, y)
+  })
+}
 
 /** Link rules (D8) shared by a service view and its popups: in-app stays, external goes to the browser, redirects are checked. */
 function hookNav(wc: Electron.WebContents, a: Account): (url: string) => boolean {
@@ -222,15 +242,20 @@ function hookLinks(v: WebContentsView, a: Account): void {
 
 /** Right-click menu (D30): the template builder gives action ids; they map to webContents, clipboard and shell calls here. */
 function hookContextMenu(wc: Electron.WebContents): void {
-  wc.on('context-menu', (_e, p) => {
+  wc.on('context-menu', async (_e, p) => {
     const nav = wc.navigationHistory
-    const items = buildContextMenu(p, { canGoBack: nav.canGoBack(), canGoForward: nav.canGoForward(), locked: !isUnlocked() })
+    // Service views only (owner map), not popups or the app UI (D46).
+    const me = owner.get(wc.id)
+    const sibs = me && isUnlocked() ? siblingsOf(me) : []
+    const post = sibs.length && !(p.linkURL && pickTarget(p.linkURL, null, '', homesOf(me!))) ? await postAt(wc, p.x, p.y) : null
+    const items = buildContextMenu(p, { canGoBack: nav.canGoBack(), canGoForward: nav.canGoForward(), locked: !isUnlocked(), siblings: sibs.length })
     if (!items.length) return
     const run = (action: string, value?: string) => {
       switch (action) {
         case 'open-link':
           if (/^https?:\/\//i.test(p.linkURL)) void shell.openExternal(p.linkURL)
           break
+        case 'open-in-other': if (me) openIn(pickTarget(p.linkURL, post, wc.getURL(), homesOf(me)), sibs); break
         case 'copy-link': clipboard.writeText(p.linkURL); break
         case 'save-image': wc.downloadURL(p.srcURL); break
         case 'copy-image': wc.copyImageAt(p.x, p.y); break
@@ -499,6 +524,9 @@ function createWindow(): BrowserWindow {
     const a = owner.get(e.sender.id)
     const u = a && isUnlocked() ? acceptPopupRequest(url, a) : null
     if (a && u) openPopup(a, u)
+  })
+  ipcMain.on('post:at-result', (e, id, url) => {
+    if (owner.has(e.sender.id) && typeof id === 'number') postWaiters.get(id)?.(typeof url === 'string' ? url : null)
   })
   ipcMain.on('idle:touch', (e) => (fromApp(e) || owner.has(e.sender.id)) && triggers.touch())
   // Self-update (D29): check once the window is up and every 12 h; apply hands over to a temp copy of update.sh and quits.
@@ -797,9 +825,7 @@ function createWindow(): BrowserWindow {
   // Links to another service (D40): none -> browser, one -> popup, several -> the renderer's chooser (one pending at a time).
   let pending: { id: number; url: string; ids: string[] } | undefined
   let choiceSeq = 0
-  openOut = (url) => {
-    const c = isUnlocked() ? candidatesFor(url, accounts, [...disabled]) : []
-    if (!c.length) return void shell.openExternal(url)
+  const offer = (url: string, c: Account[]) => {
     if (c.length === 1) return openPopup(c[0], url)
     pending = { id: ++choiceSeq, url, ids: c.map((a) => a.id) }
     showWindow()
@@ -808,6 +834,15 @@ function createWindow(): BrowserWindow {
       url,
       candidates: c.map((a) => ({ id: a.id, label: a.label, colour: a.colour, serviceId: a.serviceId }))
     })
+  }
+  openOut = (url) => {
+    const c = isUnlocked() ? candidatesFor(url, accounts, [...disabled]) : []
+    if (!c.length) return void shell.openExternal(url)
+    offer(url, c)
+  }
+  siblingsOf = (a) => siblingsFor(a, accounts, [...disabled])
+  openIn = (url, c) => {
+    if (isUnlocked() && c.length) offer(url, c)
   }
   gipc.on('links:chosen', (e: { sender: { id: number } }, id: unknown, choice: unknown) => {
     const p = pending
