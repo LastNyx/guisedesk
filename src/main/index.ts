@@ -16,7 +16,7 @@ import { acceptPopupRequest, createPopups, openTarget } from './popups'
 import { blockedLine, isGesture, loadBlocking, popupBlocked, saveBlocking, type BlockingSettings } from './blocking'
 import { createAdblock } from './adblock'
 import { buildInWorker, loadEngineBytes, PRELOAD_PATH } from './adengine'
-import { createBlockState } from './blockstate'
+import { createBlockState, shieldMenuItems } from './blockstate'
 import { createDispatcher } from './webrequest'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
@@ -132,9 +132,9 @@ const adblock = createAdblock({
   handle: (ch, fn) => ipcMain.handle(ch, fn),
   preloadPath: PRELOAD_PATH,
   wanted: () => blocking.ads,
-  onBlocked: (wcId) => {
+  onBlocked: (wcId, url) => {
     const id = wcAccount.get(wcId)
-    if (id) blockState.blocked(id)
+    if (id) blockState.blocked(id, url)
   }
 })
 // One webRequest dispatcher per session: features add named handlers, removing one never clears another.
@@ -657,6 +657,28 @@ function createWindow(): BrowserWindow {
   }
   onBlockChange = pushBlock
   gipc.handle('block:state', (e: { sender: { id: number } }) => (fromApp(e) ? { ads: blocking.ads, accounts: blockState.snapshot() } : undefined))
+  // Shield chip (D45): a native menu (it shows above the service view) with the stats and actions.
+  gipc.on('block:menu', (e: { sender: { id: number } }, id: string) => {
+    const a = fromApp(e) && accounts.find((x) => x.id === id)
+    if (!a) return
+    Menu.buildFromTemplate(
+      shieldMenuItems(blockState.get(a.id), blocking.ads).map((i) =>
+        i.separator ? { type: 'separator' as const } : {
+          label: i.label,
+          enabled: i.enabled,
+          click: () => {
+            if (i.action === 'reload') views.get(a.id)?.webContents.reload()
+            else if (i.action === 'settings') win.webContents.send('settings:open-tab', 'General')
+            else if (i.action === 'open-popup') {
+              const v = views.get(a.id)
+              const url = v && !v.webContents.isDestroyed() ? blockState.take(a.id) : undefined
+              if (v && url) openFromView(v.webContents, a, url, 'foreground-tab')
+            }
+          }
+        }
+      )
+    ).popup({ window: win })
+  })
   gipc.handle('block:open-popup', (e: { sender: { id: number } }, id: string) => {
     if (!fromApp(e) || typeof id !== 'string') return false
     const a = accounts.find((x) => x.id === id)

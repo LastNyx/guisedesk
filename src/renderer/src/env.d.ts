@@ -26,7 +26,7 @@ interface AccountRow {
 
 interface BlockSnapshot {
   ads: boolean
-  accounts: Record<string, { blocked: number; popup?: string }>
+  accounts: Record<string, { blocked: number; popup?: string; total?: number; popups?: number; hosts?: Record<string, number> }>
 }
 
 interface Snapshot {
@@ -133,6 +133,10 @@ interface Window {
     onBlock(cb: (s: BlockSnapshot) => void): void
     /** "Open anyway" on the Pop-up blocked chip: opens the dropped URL with the normal window.open handling. */
     openBlockedPopup(id: string): Promise<boolean>
+    /** Shield chip click: main shows the stats menu. */
+    shieldMenu(id: string): void
+    /** Main asks for a Settings tab (the shield menu's Blocking settings). */
+    onOpenSettingsTab(cb: (tab: string) => void): void
     add(input: {
       serviceId: string
       label: string

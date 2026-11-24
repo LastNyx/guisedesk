@@ -13,7 +13,7 @@ const props = defineProps<{
   /** A dropped pop-up URL (D45): the "Pop-up blocked" chip; clicking it opens the URL anyway. */
   popup?: string
 }>()
-const emit = defineEmits<{ reload: []; mute: [muted: boolean]; lock: []; sleep: []; settings: []; 'reset-zoom': []; 'open-popup': [] }>()
+const emit = defineEmits<{ reload: []; mute: [muted: boolean]; lock: []; sleep: []; settings: []; 'reset-zoom': []; 'open-popup': []; shield: [] }>()
 
 const service = computed(() => presetFor(props.account.serviceId)?.name ?? props.account.custom?.name ?? props.account.serviceId)
 // One chip: asleep, then muted, then always on (live chat or an always-on override); a live feed account has none.
@@ -29,7 +29,7 @@ const chip = computed(() => {
     <div class="title">{{ account.label }} <span>&middot; {{ service }}</span></div>
     <span v-if="chip" class="chip" :class="{ live: chip === 'Always on' }">{{ chip }}</span>
     <button v-if="account.zoom" class="chip zoom" title="Reset zoom" @click="emit('reset-zoom')">{{ zoomPercent(account.zoom) }}%</button>
-    <span v-if="adsOn && !asleep" class="chip shield" title="Ads and trackers blocked" aria-label="Ads and trackers blocked"><svg class="i" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>{{ blocked ?? 0 }}</span>
+    <button v-if="adsOn && !asleep" class="chip shield" title="Ads and trackers blocked" aria-label="Ads and trackers blocked" @click="emit('shield')"><svg class="i" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>{{ blocked ?? 0 }}</button>
     <button v-if="popup && !asleep" class="chip popup" :title="'Open anyway: ' + popup" @click="emit('open-popup')">Pop-up blocked</button>
     <div class="actions">
       <button class="ib" title="Reload" aria-label="Reload" @click="emit('reload')"><svg class="i" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></svg></button>
@@ -43,7 +43,7 @@ const chip = computed(() => {
 </template>
 
 <style scoped>
-.shield { display: inline-flex; align-items: center; gap: 4px; }
+.shield { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .shield .i { width: 12px; height: 12px; }
 .popup { cursor: pointer; }
 </style>

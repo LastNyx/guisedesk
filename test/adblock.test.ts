@@ -106,7 +106,7 @@ describe('adblock sessions', () => {
     listener({ url: 'https://ads.example/x.js', webContentsId: 7 }, cb)
     listener({ url: 'https://ok.example/x.js', webContentsId: 7 }, cb)
     expect(onBlocked).toHaveBeenCalledTimes(1)
-    expect(onBlocked).toHaveBeenCalledWith(7)
+    expect(onBlocked).toHaveBeenCalledWith(7, 'https://ads.example/x.js')
     expect(cb.mock.calls).toEqual([[{ cancel: true }], [{}]])
   })
   it('the IPC handlers ignore senders whose session is not enabled', async () => {

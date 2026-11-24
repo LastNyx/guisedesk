@@ -40,7 +40,7 @@ export interface AdblockDeps {
   /** Is ad blocking wanted now? Checked again after the engine load, so switching off during the load sticks. */
   wanted: () => boolean
   /** A request was cancelled or redirected in this webContents (the top bar count). */
-  onBlocked?: (webContentsId: number) => void
+  onBlocked?: (webContentsId: number, url: string) => void
   now?: () => number
   log?: (msg: string, err?: unknown) => void
 }
@@ -122,7 +122,7 @@ export function createAdblock(d: AdblockDeps) {
     wr.add(NAME, {
       before: (details, cb) =>
         b.onBeforeRequest(details, (r: { cancel?: boolean; redirectURL?: string }) => {
-          if ((r?.cancel || r?.redirectURL) && typeof details.webContentsId === 'number') d.onBlocked?.(details.webContentsId)
+          if ((r?.cancel || r?.redirectURL) && typeof details.webContentsId === 'number') d.onBlocked?.(details.webContentsId, details.url)
           cb(r)
         }),
       headers: (details, cb) => b.onHeadersReceived(details, cb)
