@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildContextMenu, rowMenuItems, type MenuParams } from '../src/main/contextmenu'
+import { buildContextMenu, rowMenuItems, type MenuParams, type MenuState } from '../src/main/contextmenu'
 
 const flags = { canUndo: true, canRedo: false, canCut: true, canCopy: true, canPaste: true, canSelectAll: true }
 const base: MenuParams = {
@@ -13,7 +13,7 @@ const base: MenuParams = {
   dictionarySuggestions: []
 }
 const state = { canGoBack: true, canGoForward: false, locked: false }
-const labels = (p: Partial<MenuParams>, s = state) =>
+const labels = (p: Partial<MenuParams>, s: MenuState = state) =>
   buildContextMenu({ ...base, ...p }, s).map((i) => ('type' in i ? '-' : i.label))
 
 describe('buildContextMenu', () => {
@@ -80,3 +80,17 @@ describe('rowMenuItems (D41)', () => {
     ])
   })
 })
+describe('Open in another account (D46)', () => {
+  it('shows in its own group after the link group when siblings > 0', () => {
+    expect(labels({ linkURL: 'https://a.example/x' }, { ...state, siblings: 1 })).toEqual([
+      'Open link in browser', 'Copy link address', '-', 'Open in another account', '-', 'Back', 'Forward', 'Reload'
+    ])
+    expect(buildContextMenu(base, { ...state, siblings: 2 })[0]).toEqual({ label: 'Open in another account', action: 'open-in-other', enabled: true })
+  })
+  it('absent with no siblings, or when locked', () => {
+    expect(labels({}, { ...state, siblings: 0 })).toEqual(['Back', 'Forward', 'Reload'])
+    expect(labels({}, state)).toEqual(['Back', 'Forward', 'Reload'])
+    expect(buildContextMenu(base, { ...state, siblings: 1, locked: true })).toEqual([])
+  })
+})
+

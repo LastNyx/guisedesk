@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { candidatesFor } from '../src/main/servicelinks'
+import { candidatesFor, pickTarget, siblingsFor } from '../src/main/servicelinks'
 import { PRESETS } from '../src/main/presets'
 
 const acc = (id: string, serviceId: string, order: number, custom?: { name: string; url: string; hosts: string[] }) =>
@@ -52,5 +52,46 @@ describe('candidatesFor', () => {
     expect(ids(candidatesFor('https://discord.gg/abc', a, []))).toEqual(['d1'])
     const m = [acc('f', 'facebook', 0), acc('f2', 'facebook', 1)]
     expect(ids(candidatesFor('https://fb.com/x', m, []))).toEqual(['f', 'f2'])
+  })
+})
+
+describe('siblingsFor (D46)', () => {
+  const th = (id: string, order: number, shareWith?: string) =>
+    ({ id, serviceId: 'threads', label: id, colour: '#6d5bd0', order, ...(shareWith ? { shareWith } : {}) }) as never
+  const list = [th('t1', 0), acc('ig1', 'instagram', 1), th('t2', 3), th('t3', 2), th('t4', 4, 't1')]
+  it('other threads accounts on another partition, sidebar order, not itself', () => {
+    expect(ids(siblingsFor(list[0], list, []))).toEqual(['t3', 't2'])
+  })
+  it('none when the service is disabled or the only other shares the partition', () => {
+    expect(siblingsFor(list[0], list, ['threads'])).toEqual([])
+    expect(siblingsFor(list[0], [list[0], list[4]], [])).toEqual([])
+  })
+  it('none when alone', () => {
+    expect(siblingsFor(list[1], list, [])).toEqual([])
+  })
+})
+
+describe('pickTarget (D46)', () => {
+  const homes = ['threads.com', 'threads.net']
+  it('a link on a home host (subdomain too) wins', () => {
+    expect(pickTarget('https://www.threads.com/@a/post/1', 'https://threads.com/p', 'https://threads.com/', homes)).toBe('https://www.threads.com/@a/post/1')
+  })
+  it('unwraps a redirect link', () => {
+    expect(pickTarget('https://l.threads.com/?u=https%3A%2F%2Fthreads.net%2Fx', '', 'https://threads.com/', homes)).toBe('https://threads.net/x')
+  })
+  it('a link on another host falls to the post, then the page', () => {
+    expect(pickTarget('https://example.org/a', 'https://threads.com/p', 'https://threads.com/', homes)).toBe('https://threads.com/p')
+    expect(pickTarget('', null, 'https://threads.com/feed', homes)).toBe('https://threads.com/feed')
+  })
+  it('a non-http link is ignored', () => {
+    expect(pickTarget('javascript:alert(1)', '', 'https://threads.com/feed', homes)).toBe('https://threads.com/feed')
+  })
+})
+
+describe('siblingsFor custom sites (D46)', () => {
+  const c = (id: string, host: string) => acc(id, 'custom', 0, { name: id, url: `http://${host}/`, hosts: [host] })
+  it('only custom accounts of the same site are siblings', () => {
+    const list = [c('a', 'x.test'), c('b', 'y.test'), c('d', 'x.test')]
+    expect(ids(siblingsFor(list[0], list, []))).toEqual(['d'])
   })
 })
