@@ -18,6 +18,8 @@ interface AccountRow {
   order: number
   muted?: boolean
   blurMedia?: boolean
+  keepDeleted?: boolean
+  keeperUnavailable?: boolean
   zoom?: number
   idlePolicy?: string
   shareWith?: string
@@ -103,6 +105,7 @@ interface Window {
     mute(id: string, muted: boolean): Promise<Snapshot>
     /** Blur media in an account's view until hovered (D42, D43). */
     setBlur(id: string, on: boolean): Promise<Snapshot>
+    setKeepDeleted(id: string, on: boolean): Promise<Snapshot>
     /** An external link matches several accounts (D40): pick one, 'browser', or null to cancel. */
     onLinkChoose(cb: (r: LinkChoice) => void): void
     chooseLink(id: number, choice: string | null): void

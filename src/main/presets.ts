@@ -19,6 +19,8 @@ export interface Preset {
   postLink?: { container: string; link: string }
   /** Posts container whose big media (by rendered size) is blurred until hovered (D42, D43). */
   blurMedia?: { container: string; items?: string[]; exclude?: string[] }
+  /** The service can keep text of messages deleted for everyone (D47b); each account switches it on. */
+  keepDeleted?: boolean
   /** Mouse drag scrolls sideways rows of media (D44). */
   dragScroll?: boolean
 }
@@ -67,6 +69,7 @@ const BLUR: Record<string, NonNullable<Preset['blurMedia']>> = {
 }
 for (const x of PRESETS) if (BLUR[x.id]) x.blurMedia = BLUR[x.id]
 for (const x of PRESETS) if (x.id === 'x') x.dragScroll = true
+for (const x of PRESETS) if (x.id === 'whatsapp') x.keepDeleted = true
 
 /** Custom URL service: kind feed by default; start URL and hosts come from the account. */
 export const CUSTOM_PRESET_ID = 'custom'

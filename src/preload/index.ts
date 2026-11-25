@@ -4,6 +4,7 @@ import { countsAsInput } from './touch'
 import { parseHint, pickPostLink } from './postlink'
 import { blurCss, parseBlurHint, watchBlur } from './blur'
 import { parseDragHint, watchDragScroll } from './dragscroll'
+import { parseWakeepHint, wakeepScript } from './wakeep'
 
 // Service views (flagged by main with --gd-service) get only a notification shim; the app bridge is not exposed to them.
 const service = process.argv.includes('--gd-service')
@@ -65,6 +66,15 @@ if (service) {
       const s = getComputedStyle(e)
       return { overflowX: s.overflowX, scrollWidth: e.scrollWidth, clientWidth: e.clientWidth }
     }), { once: true })
+  }
+  // D47b: keep deleted messages. The service supports it (--gd-wakeep); main says whether this account switched it on.
+  // The script goes into the page only when on; toggling reloads the view, so off means nothing injected.
+  if (parseWakeepHint(process.argv)) {
+    ipcRenderer.invoke('wakeep:enabled').then((on) => {
+      if (!on) return
+      contextBridge.exposeInMainWorld('__gdWakeep', (s: string) => ipcRenderer.send('wakeep:state', s))
+      webFrame.executeJavaScript(wakeepScript()).catch((e) => console.warn('[guisedesk] keeper failed', e))
+    }).catch((e) => console.warn('[guisedesk] keeper state failed', e))
   }
   // D42/D43: blur media until hovered. Main owns the flag (blur:state at start, blur:set live).
   const blur = parseBlurHint(process.argv)
@@ -130,6 +140,7 @@ if (service) {
   onZoom: (cb: (s: unknown) => void) => ipcRenderer.on('accounts:zoom', (_e, s) => cb(s)),
   mute: (id: string, muted: boolean) => ipcRenderer.invoke('accounts:mute', id, muted),
   setBlur: (id: string, on: boolean) => ipcRenderer.invoke('accounts:blur', id, on),
+  setKeepDeleted: (id: string, on: boolean) => ipcRenderer.invoke('accounts:keepdeleted', id, on),
   onOpenSettings: (cb: () => void) => ipcRenderer.on('settings:open', () => cb()),
   setServiceEnabled: (serviceId: string, enabled: boolean) => ipcRenderer.invoke('services:set', serviceId, enabled),
   setPolicy: (id: string, policy: string) => ipcRenderer.invoke('accounts:policy', id, policy),

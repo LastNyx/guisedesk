@@ -14,6 +14,8 @@ export interface Account {
   muted?: boolean
   /** Blur media in the service view until hovered (D42, D43). */
   blurMedia?: boolean
+  /** Keep the text of messages deleted for everyone (WhatsApp only, D47b). */
+  keepDeleted?: boolean
   /** Chromium zoom level (D32); missing = 0 (100%). */
   zoom?: number
   /** Host account id whose session partition this account uses (D36). */
@@ -90,6 +92,13 @@ export function setMuted(dir: string, id: string, muted: boolean): Account[] {
 /** Sets one account's blur-media flag (D42) and returns the saved list. */
 export function setBlurMedia(dir: string, id: string, blurMedia: boolean): Account[] {
   const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, blurMedia } : a))
+  saveAccounts(dir, accounts)
+  return accounts
+}
+
+/** Sets one account's keep-deleted-messages flag (D47b) and returns the saved list. */
+export function setKeepDeleted(dir: string, id: string, keepDeleted: boolean): Account[] {
+  const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, keepDeleted } : a))
   saveAccounts(dir, accounts)
   return accounts
 }
