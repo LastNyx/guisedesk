@@ -2,7 +2,7 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { countsAsInput } from './touch'
 import { parseHint, pickPostLink } from './postlink'
-import { blurCss, parseBlurHint, watchBlur } from './blur'
+import { blurCss, parseBlurHint, watchBlur, type Part } from './blur'
 import { parseDragHint, watchDragScroll } from './dragscroll'
 import { parseWakeepHint, wakeepScript } from './wakeep'
 
@@ -80,12 +80,13 @@ if (service) {
   const blur = parseBlurHint(process.argv)
   if (blur) {
     let key: string | null = null
-    let watcher: { stop: () => void } | null = null
+    let watcher: { stop: () => void; setParts: (p: readonly Part[]) => void } | null = null
+    let parts: Part[] = ['messages', 'previews', 'avatars', 'names']
     let want = false
     // webFrame.insertCSS needs a document: wait for it and retry, and say so when it still fails.
     const insert = async (): Promise<string | null> => {
       for (let i = 0; i < 5; i++) {
-        try { return await webFrame.insertCSS(blurCss()) } catch (e) {
+        try { return await webFrame.insertCSS(blurCss(blur.strength)) } catch (e) {
           if (i === 4) console.warn('[guisedesk] blur css failed', e)
           else await new Promise((r) => setTimeout(r, 200 * (i + 1)))
         }
@@ -94,10 +95,11 @@ if (service) {
     }
     const apply = async (next: boolean) => {
       want = next
+      if (want && watcher) watcher.setParts(parts)
       if (want && !watcher) {
         if (document.readyState === 'loading') await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }))
         if (!want || watcher) return
-        watcher = watchBlur(window, blur)
+        watcher = watchBlur(window, blur, parts)
         if (key === null) { const k = await insert(); if (want) key = k; else if (k) webFrame.removeInsertedCSS(k) }
       } else if (!want) {
         watcher?.stop()
@@ -105,8 +107,9 @@ if (service) {
         if (key !== null) { const k = key; key = null; webFrame.removeInsertedCSS(k) }
       }
     }
-    ipcRenderer.invoke('blur:state').then((s) => apply(!!s)).catch((e) => console.warn('[guisedesk] blur state failed', e))
-    ipcRenderer.on('blur:set', (_e, s) => void apply(!!s))
+    const take = (s: { on?: boolean; parts?: Part[] }) => { if (Array.isArray(s?.parts)) parts = s.parts; return apply(!!s?.on) }
+    ipcRenderer.invoke('blur:state').then(take).catch((e) => console.warn('[guisedesk] blur state failed', e))
+    ipcRenderer.on('blur:set', (_e, s) => void take(s))
   }
 } else contextBridge.exposeInMainWorld('guisedesk', {
   lockState: () => ipcRenderer.invoke('lock:state'),
@@ -140,6 +143,7 @@ if (service) {
   onZoom: (cb: (s: unknown) => void) => ipcRenderer.on('accounts:zoom', (_e, s) => cb(s)),
   mute: (id: string, muted: boolean) => ipcRenderer.invoke('accounts:mute', id, muted),
   setBlur: (id: string, on: boolean) => ipcRenderer.invoke('accounts:blur', id, on),
+  setBlurPart: (id: string, part: string, on: boolean) => ipcRenderer.invoke('accounts:blurpart', id, part, on),
   setKeepDeleted: (id: string, on: boolean) => ipcRenderer.invoke('accounts:keepdeleted', id, on),
   onOpenSettings: (cb: () => void) => ipcRenderer.on('settings:open', () => cb()),
   setServiceEnabled: (serviceId: string, enabled: boolean) => ipcRenderer.invoke('services:set', serviceId, enabled),

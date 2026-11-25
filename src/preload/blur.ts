@@ -1,6 +1,20 @@
 // Blur media hint (D42, D43). Plain TS, no electron: the CSS, the size rule and the DOM watcher (blur by rendered size, reveal on hover).
 /** `items` switches to items mode (D47): whole elements matching them are blurred, never ones touching `exclude`. */
-export interface BlurHint { container: string; items?: string[]; exclude?: string[] }
+export interface BlurHint { container: string; items?: string[]; exclude?: string[]; parts?: Record<Part, string[]>; strength?: 'light' }
+/** WhatsApp privacy blur parts (D48): each one has its own selectors and switch. */
+export const PARTS = ['messages', 'previews', 'avatars', 'names'] as const
+export type Part = (typeof PARTS)[number]
+
+/** Parts that are on: a part with no stored flag is on. */
+export function partsOn(flags?: Partial<Record<Part, boolean>>): Part[] {
+  return PARTS.filter((p) => flags?.[p] !== false)
+}
+
+/** The item selectors to blur: the enabled parts of a parts hint, else the hint's items. */
+export function selectorsFor(hint: BlurHint, enabled: readonly Part[]): string[] {
+  if (!hint.parts) return hint.items ?? []
+  return PARTS.filter((p) => enabled.includes(p)).flatMap((p) => hint.parts![p])
+}
 
 const MIN = 100
 const HOVER_MS = 300
@@ -8,8 +22,8 @@ const MOVE_MS = 50
 const SCAN_MS = 50
 
 /** CSS that blurs media marked by the watcher until it is hovered. */
-export function blurCss(): string {
-  return '[data-gd-blur]:not([data-gd-hover]) { filter: blur(28px); transition: filter 300ms ease-out; }\n[data-gd-blur][data-gd-hover] { filter: blur(0); transition: filter 400ms ease-out; }'
+export function blurCss(strength?: 'light'): string {
+  return `[data-gd-blur]:not([data-gd-hover]) { filter: blur(${strength === 'light' ? 5 : 28}px); transition: filter 300ms ease-out; }\n[data-gd-blur][data-gd-hover] { filter: blur(0); transition: filter 400ms ease-out; }`
 }
 
 /** True for img, video and background tiles (tag 'bg') whose rendered box is at least 100x100. */
@@ -26,7 +40,8 @@ export function parseBlurHint(argv: string[]): BlurHint | null {
     if (typeof h?.container !== 'string') return null
     const list = (v: unknown) => (Array.isArray(v) && v.every((x) => typeof x === 'string') ? (v as string[]) : null)
     const items = list(h.items), exclude = list(h.exclude)
-    return { container: h.container, ...(items ? { items } : {}), ...(items && exclude ? { exclude } : {}) }
+    const parts = h.parts && PARTS.every((p) => list(h.parts[p])) ? (h.parts as Record<Part, string[]>) : null
+    return { container: h.container, ...(items ? { items } : {}), ...(parts ? { parts } : {}), ...((items || parts) && exclude ? { exclude } : {}), ...(h.strength === 'light' ? { strength: 'light' as const } : {}) }
   } catch {
     return null
   }
@@ -36,8 +51,10 @@ export function parseBlurHint(argv: string[]): BlurHint | null {
  * Marks big media inside the container with data-gd-blur (kept current by observers) and un-blurs what the pointer
  * rests on for 300 ms (data-gd-hover). elementsFromPoint is used so overlays above a photo do not block the hover.
  */
-export function watchBlur(win: Window & typeof globalThis, hint: BlurHint): { stop: () => void } {
+export function watchBlur(win: Window & typeof globalThis, hint: BlurHint, parts: readonly Part[] = PARTS): { stop: () => void; setParts: (p: readonly Part[]) => void } {
   const doc = win.document
+  let enabled = parts
+  const itemsMode = !!(hint.items || hint.parts)
   const marked = new Set<Element>()
   const ro = typeof win.ResizeObserver === 'function' ? new win.ResizeObserver(() => schedule()) : null
   const observed = new WeakSet<Element>()
@@ -50,15 +67,16 @@ export function watchBlur(win: Window & typeof globalThis, hint: BlurHint): { st
   const scanItems = (): Set<Element> => {
     const found = new Set<Element>()
     const skip = (hint.exclude ?? []).join(', ')
-    for (const e of doc.querySelectorAll(hint.items!.map((i) => `${hint.container} ${i}`).join(', '))) {
+    const sels = selectorsFor(hint, enabled).map((i) => `${hint.container} ${i}`).join(', ')
+    for (const e of sels ? doc.querySelectorAll(sels) : []) {
       if (skip && (e.closest(skip) || e.querySelector(skip))) continue
       found.add(e)
     }
     return found
   }
   const scan = () => {
-    const found = hint.items ? scanItems() : new Set<Element>()
-    if (!hint.items) {
+    const found = itemsMode ? scanItems() : new Set<Element>()
+    if (!itemsMode) {
       for (const e of doc.querySelectorAll(`${hint.container} img, ${hint.container} video, ${hint.container} [style*="background-image"]`)) {
         const tag = tagOf(e)
         if (!tag) continue
@@ -114,6 +132,7 @@ export function watchBlur(win: Window & typeof globalThis, hint: BlurHint): { st
   doc.documentElement.addEventListener('mouseleave', onLeave)
 
   return {
+    setParts(p) { enabled = p; scan() },
     stop() {
       mo.disconnect()
       ro?.disconnect()

@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { appRoot, dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setKeepDeleted, setServiceEnabled, setZoom, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setServiceEnabled, setZoom, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -35,6 +35,7 @@ import { buildContextMenu, rowMenuItems } from './contextmenu'
 import { doneNotice, loadDownloads, saveDownloads, uniquePath } from './downloads'
 import { nextZoom, switchTarget, zoomKey, type KeyInput } from './shortcuts'
 import { sidebarOrder } from './services'
+import { PARTS, partsOn, type Part } from '../preload/blur'
 import { onPartition, partitionKey, partitionOf } from './sharing'
 import { secondLaunch } from './singleinstance'
 import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
@@ -89,6 +90,8 @@ let dnd = false
 let disabled = new Set<string>()
 // Which account a service view's webContents belongs to, for notification IPC.
 const owner = new Map<number, Account>()
+/** What the service preload needs for the blur: the main switch and the enabled parts (D48). */
+const blurState = (a?: Account) => ({ on: !!a?.blurMedia, parts: partsOn(a?.blurParts) })
 // Hibernation (D7): sleep = view destroyed, partition kept. sleepState feeds the sidebar (ZZ) and the asleep panel.
 const hib = createHibernator(Date.now)
 const sleepState: Record<string, { minutes: number; waking: boolean }> = {}
@@ -604,7 +607,7 @@ function createWindow(): BrowserWindow {
   setInterval(triggers.check, 10_000).unref()
   ipcMain.removeAllListeners('idle:touch')
   ipcMain.removeHandler('blur:state')
-  ipcMain.handle('blur:state', (e) => !!owner.get(e.sender.id)?.blurMedia)
+  ipcMain.handle('blur:state', (e) => blurState(owner.get(e.sender.id)))
   // D47b: the keeper script only runs when the account switched it on; a failed hook reports 'unavailable' here.
   ipcMain.removeHandler('wakeep:enabled')
   ipcMain.handle('wakeep:enabled', (e) => !!owner.get(e.sender.id)?.keepDeleted)
@@ -1017,7 +1020,16 @@ function createWindow(): BrowserWindow {
     const v = views.get(id)
     const held = owner.get(v?.webContents.id ?? -1)
     if (held) held.blurMedia = !!on
-    if (v && !v.webContents.isDestroyed()) v.webContents.send('blur:set', !!on)
+    if (v && !v.webContents.isDestroyed()) v.webContents.send('blur:set', blurState(held ?? accounts.find((a) => a.id === id)))
+    return snapshot()
+  })
+  gipc.handle('accounts:blurpart', (_e: unknown, id: string, part: string, on: boolean) => {
+    if (!accounts.some((a) => a.id === id) || !(PARTS as readonly string[]).includes(part)) return snapshot()
+    accounts = orderedAccounts(setBlurPart(dir, id, part as Part, !!on))
+    const v = views.get(id)
+    const held = owner.get(v?.webContents.id ?? -1)
+    if (held) held.blurParts = accounts.find((a) => a.id === id)?.blurParts
+    if (v && !v.webContents.isDestroyed()) v.webContents.send('blur:set', blurState(accounts.find((a) => a.id === id)))
     return snapshot()
   })
   gipc.handle('accounts:keepdeleted', (_e: unknown, id: string, on: boolean) => {

@@ -4,8 +4,8 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mount } from '@vue/test-utils'
-import { blurCss, parseBlurHint, shouldBlur, watchBlur } from '../src/preload/blur'
-import { addAccount, loadAccounts, setBlurMedia } from '../src/main/accounts'
+import { blurCss, parseBlurHint, partsOn, selectorsFor, shouldBlur, watchBlur } from '../src/preload/blur'
+import { addAccount, loadAccounts, setBlurMedia, setBlurPart } from '../src/main/accounts'
 import { PRESETS } from '../src/main/presets'
 import AccountSheet from '../src/renderer/src/AccountSheet.vue'
 
@@ -186,7 +186,9 @@ describe('presets and the stored flag', () => {
     expect(PRESETS.filter((p) => p.blurMedia).map((p) => p.id).sort()).toEqual(['facebook', 'instagram', 'threads', 'whatsapp', 'x'])
     const wa = PRESETS.find((p) => p.id === 'whatsapp')!.blurMedia!
     expect(wa.container).toBe('#app')
-    expect(wa.items).toEqual(expect.arrayContaining(['#pane-side [role="listitem"]', '#pane-side [role="row"]', '#main header', '#main [data-id]']))
+    expect(wa.items).toBeUndefined()
+    expect(wa.strength).toBe('light')
+    expect(Object.keys(wa.parts!).sort()).toEqual(['avatars', 'messages', 'names', 'previews'])
     expect(wa.exclude).toEqual(expect.arrayContaining(['footer', '[contenteditable="true"]']))
   })
   it('setBlurMedia stores the flag per account, default off', () => {
@@ -217,5 +219,68 @@ describe('AccountSheet blur toggle', () => {
     await wa.find('[aria-label="Privacy blur"]').trigger('click')
     expect(wa.emitted('blur')![0]).toEqual([true])
     expect(mount(AccountSheet, { props: { account: acc('x', true) } }).find('[aria-label="Blur media until hovered"]').attributes('aria-checked')).toBe('true')
+  })
+})
+
+describe('WhatsApp blur parts (D48)', () => {
+  const hint = { container: '#app', parts: { messages: ['.m'], previews: ['.p'], avatars: ['img'], names: ['.n'] }, exclude: ['footer'], strength: 'light' as const }
+  it('selectorsFor returns only the enabled parts', () => {
+    expect(selectorsFor(hint, ['previews', 'names'])).toEqual(['.p', '.n'])
+    expect(selectorsFor(hint, [])).toEqual([])
+    expect(selectorsFor({ container: '#app', items: ['a'] }, [])).toEqual(['a'])
+  })
+  it('light strength is 5px, default stays 28px', () => {
+    expect(blurCss('light')).toContain('filter: blur(5px)')
+    expect(blurCss('light')).not.toContain('28px')
+    expect(blurCss()).toContain('filter: blur(28px)')
+  })
+  it('hint argument keeps parts and strength', () => {
+    expect(parseBlurHint(['--gd-blur=' + JSON.stringify(hint)])).toEqual(hint)
+  })
+  it('partsOn: a missing flag is on', () => {
+    expect(partsOn(undefined)).toEqual(['messages', 'previews', 'avatars', 'names'])
+    expect(partsOn({ previews: false, names: true })).toEqual(['messages', 'avatars', 'names'])
+  })
+  it('real preset selectors pick the smallest element and leave times and the compose box sharp', () => {
+    const wa = PRESETS.find((p) => p.id === 'whatsapp')!.blurMedia!
+    document.body.innerHTML = `<div id="app">
+      <div id="pane-side"><div role="listitem"><img id="av1"><div role="gridcell"><div><span dir="auto" title="Ann" id="nm1">Ann</span><span id="tm1">10:00</span></div><div><span dir="ltr" id="pv1">hello</span><span id="ic1"></span></div></div></div></div>
+      <div id="main"><header><img id="av2"><span dir="auto" title="Ann" id="nm2">Ann</span></header>
+        <div data-id="m1"><div class="copyable-text" id="tx"><span class="selectable-text">hi</span></div><span id="tm2">10:01</span></div>
+        <div data-id="m2"><img id="pic"></div>
+        <footer><div contenteditable="true" id="box"><span class="selectable-text" id="bx">type</span></div></footer></div></div>`
+    const sel = (id: string) => document.getElementById(id)!
+    const marked = () => [...document.querySelectorAll('[data-gd-blur]')].map((e) => e.id).filter(Boolean).sort()
+    const w = watchBlur(window, wa, partsOn(undefined))
+    expect(marked()).toEqual(['av1', 'av2', 'nm1', 'nm2', 'pic', 'pv1', 'tx'])
+    expect(sel('tm1').hasAttribute('data-gd-blur') || sel('tm2').hasAttribute('data-gd-blur') || sel('bx').hasAttribute('data-gd-blur')).toBe(false)
+    w.setParts(['previews'])
+    expect(marked()).toEqual(['pv1'])
+    w.setParts([])
+    expect(marked()).toEqual([])
+    w.stop()
+  })
+  it('setBlurPart stores one flag per account without touching the others', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gd-blurp-'))
+    const a = addAccount(dir, { serviceId: 'whatsapp', label: 'a', colour: '#6d5bd0' })
+    setBlurMedia(dir, a.id, true)
+    expect(loadAccounts(dir)[0].blurParts).toBeUndefined()
+    setBlurPart(dir, a.id, 'previews', false)
+    expect(loadAccounts(dir)[0].blurParts).toEqual({ previews: false })
+    expect(partsOn(loadAccounts(dir)[0].blurParts)).toEqual(['messages', 'avatars', 'names'])
+  })
+  it('AccountSheet shows four sub-switches for WhatsApp only, enabled only when blur is on, and emits the flip', async () => {
+    const acc = (serviceId: string, blurMedia?: boolean, blurParts?: Record<string, boolean>) => ({ id: 'a1', serviceId, label: 'L', colour: '#6d5bd0', blurMedia, blurParts })
+    expect(mount(AccountSheet, { props: { account: acc('x', true) } }).findAll('[data-part]').length).toBe(0)
+    const off = mount(AccountSheet, { props: { account: acc('whatsapp', false) } })
+    expect(off.findAll('[data-part]').length).toBe(4)
+    expect(off.findAll('[data-part]').every((b) => b.attributes('disabled') !== undefined)).toBe(true)
+    const on = mount(AccountSheet, { props: { account: acc('whatsapp', true, { previews: false }) } })
+    expect(on.find('[aria-label="Chat list previews"]').attributes('aria-checked')).toBe('false')
+    expect(on.find('[aria-label="Names"]').attributes('aria-checked')).toBe('true')
+    await on.find('[aria-label="Profile photos"]').trigger('click')
+    expect(on.emitted('blurPart')![0]).toEqual(['avatars', false])
+    await on.find('[aria-label="Chat list previews"]').trigger('click')
+    expect(on.emitted('blurPart')![1]).toEqual(['previews', true])
   })
 })
