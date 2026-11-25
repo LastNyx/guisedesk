@@ -18,7 +18,7 @@ export interface Preset {
   /** Selectors for a post that is not a link: its container and the permalink inside it (D38). */
   postLink?: { container: string; link: string }
   /** Posts container whose big media (by rendered size) is blurred until hovered (D42, D43). */
-  blurMedia?: { container: string }
+  blurMedia?: { container: string; items?: string[]; exclude?: string[] }
   /** Mouse drag scrolls sideways rows of media (D44). */
   dragScroll?: boolean
 }
@@ -57,7 +57,13 @@ const BLUR: Record<string, NonNullable<Preset['blurMedia']>> = {
   x: { container: 'article' },
   threads: { container: '[data-pressable-container]' },
   instagram: { container: 'article' },
-  facebook: { container: '[role="article"]' }
+  facebook: { container: '[role="article"]' },
+  // Items mode (D47): whole chat rows, the open chat's header and every message; the compose box stays readable.
+  whatsapp: {
+    container: '#app',
+    items: ['#pane-side [role="listitem"]', '#pane-side [role="row"]', '#main header', '#main [data-id]'],
+    exclude: ['footer', '[contenteditable="true"]']
+  }
 }
 for (const x of PRESETS) if (BLUR[x.id]) x.blurMedia = BLUR[x.id]
 for (const x of PRESETS) if (x.id === 'x') x.dragScroll = true

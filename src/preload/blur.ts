@@ -1,5 +1,6 @@
 // Blur media hint (D42, D43). Plain TS, no electron: the CSS, the size rule and the DOM watcher (blur by rendered size, reveal on hover).
-export interface BlurHint { container: string }
+/** `items` switches to items mode (D47): whole elements matching them are blurred, never ones touching `exclude`. */
+export interface BlurHint { container: string; items?: string[]; exclude?: string[] }
 
 const MIN = 100
 const HOVER_MS = 300
@@ -22,7 +23,10 @@ export function parseBlurHint(argv: string[]): BlurHint | null {
   if (!raw) return null
   try {
     const h = JSON.parse(raw.slice('--gd-blur='.length))
-    return typeof h?.container === 'string' ? { container: h.container } : null
+    if (typeof h?.container !== 'string') return null
+    const list = (v: unknown) => (Array.isArray(v) && v.every((x) => typeof x === 'string') ? (v as string[]) : null)
+    const items = list(h.items), exclude = list(h.exclude)
+    return { container: h.container, ...(items ? { items } : {}), ...(items && exclude ? { exclude } : {}) }
   } catch {
     return null
   }
@@ -43,14 +47,25 @@ export function watchBlur(win: Window & typeof globalThis, hint: BlurHint): { st
     if (t === 'img' || t === 'video') return t
     return e instanceof win.HTMLElement && /url\(/.test(e.style.backgroundImage) && !e.textContent?.trim() ? 'bg' : null
   }
-  const scan = () => {
+  const scanItems = (): Set<Element> => {
     const found = new Set<Element>()
-    for (const e of doc.querySelectorAll(`${hint.container} img, ${hint.container} video, ${hint.container} [style*="background-image"]`)) {
-      const tag = tagOf(e)
-      if (!tag) continue
-      if (ro && !observed.has(e)) { observed.add(e); ro.observe(e) }
-      const r = e.getBoundingClientRect()
-      if (shouldBlur({ w: r.width, h: r.height }, tag)) found.add(e)
+    const skip = (hint.exclude ?? []).join(', ')
+    for (const e of doc.querySelectorAll(hint.items!.map((i) => `${hint.container} ${i}`).join(', '))) {
+      if (skip && (e.closest(skip) || e.querySelector(skip))) continue
+      found.add(e)
+    }
+    return found
+  }
+  const scan = () => {
+    const found = hint.items ? scanItems() : new Set<Element>()
+    if (!hint.items) {
+      for (const e of doc.querySelectorAll(`${hint.container} img, ${hint.container} video, ${hint.container} [style*="background-image"]`)) {
+        const tag = tagOf(e)
+        if (!tag) continue
+        if (ro && !observed.has(e)) { observed.add(e); ro.observe(e) }
+        const r = e.getBoundingClientRect()
+        if (shouldBlur({ w: r.width, h: r.height }, tag)) found.add(e)
+      }
     }
     for (const e of [...found]) if ([...found].some((o) => o !== e && o.contains(e))) found.delete(e)
     for (const e of marked) if (!found.has(e)) { e.removeAttribute('data-gd-blur'); e.removeAttribute('data-gd-hover'); marked.delete(e) }
