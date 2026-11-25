@@ -132,6 +132,10 @@ async function setBlur(id: string, on: boolean) {
   take(await window.guisedesk.setBlur(id, on))
 }
 
+async function setKeepDeleted(id: string, on: boolean) {
+  take(await window.guisedesk.setKeepDeleted(id, on))
+}
+
 // Ad and pop-up blocking chips (D45), pushed by main.
 const block = ref<BlockSnapshot>({ ads: false, accounts: {} })
 function shieldMenu(id: string) {
@@ -263,6 +267,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
       @policy="(v) => setPolicy(sheetAccount!.id, v)"
       @mute="(m) => mute(sheetAccount!.id, m)"
       @blur="(on) => setBlur(sheetAccount!.id, on)"
+      @keep-deleted="(on) => setKeepDeleted(sheetAccount!.id, on)"
       @logout="logout(sheetAccount!.id)"
       @remove="removeAccount(sheetAccount!.id)"
       @done="sheetId = undefined"

@@ -24,6 +24,7 @@ describe('blurCss and the hint argument', () => {
   })
   it('parses main argument (container only)', () => {
     expect(parseBlurHint(['--gd-blur=' + JSON.stringify({ container: 'article', media: 'img', skip: 'x' })])).toEqual(hint)
+    expect(parseBlurHint(['--gd-blur=' + JSON.stringify({ container: '#app', items: ['a'], exclude: ['b'] })])).toEqual({ container: '#app', items: ['a'], exclude: ['b'] })
     expect(parseBlurHint(['--gd-service'])).toBeNull()
     expect(parseBlurHint(['--gd-blur=nope'])).toBeNull()
   })
@@ -131,9 +132,62 @@ describe('watchBlur', () => {
   })
 })
 
+describe('watchBlur items mode (WhatsApp privacy blur, D47)', () => {
+  const wa = { container: '#app', items: ['#pane-side [role="listitem"]', '#main header', '#main [data-id]'], exclude: ['footer', '[contenteditable="true"]'] }
+  const el = (id: string) => document.getElementById(id)!
+  const size = (e: Element, w: number, h: number, top = 0) => { e.getBoundingClientRect = () => ({ width: w, height: h, left: 0, top, right: w, bottom: top + h, x: 0, y: top, toJSON() {} }) }
+  const marked = () => [...document.querySelectorAll('[data-gd-blur]')].map((e) => e.id).sort()
+  let stop: (() => void) | null = null
+  beforeEach(() => {
+    vi.useFakeTimers()
+    document.body.innerHTML = `<div id="app">
+      <div id="pane-side"><div role="listitem" id="r1"><span id="n1">Ann</span></div><div role="listitem" id="r2">Bob</div></div>
+      <div id="main"><header id="hd">Ann</header><div data-id="m1" id="m1">hi</div><div data-id="m2" id="m2"><img id="im" width="1"></div>
+        <footer id="ft"><div contenteditable="true" id="box" data-id="x">type</div></footer></div></div><span id="out" data-id="o">out</span>`
+    for (const id of ['r1', 'r2', 'hd', 'm1', 'm2', 'ft', 'box', 'im']) size(el(id), 50, 20)
+  })
+  afterEach(() => { stop?.(); stop = null; vi.useRealTimers() })
+
+  it('marks chat rows, header and every message regardless of size; never the compose box, footer or outside items', () => {
+    stop = watchBlur(window, wa).stop
+    expect(marked()).toEqual(['hd', 'm1', 'm2', 'r1', 'r2'])
+  })
+  it('keeps marks current for added items', async () => {
+    stop = watchBlur(window, wa).stop
+    const m = document.createElement('div'); m.id = 'm3'; m.setAttribute('data-id', '3'); size(m, 10, 10)
+    el('main').append(m)
+    await Promise.resolve(); vi.advanceTimersByTime(100)
+    expect(marked()).toContain('m3')
+  })
+  it('hovering one item 300 ms reveals only that item; leaving re-blurs', () => {
+    stop = watchBlur(window, wa).stop
+    let stack: Element[] = [el('n1'), el('r1'), el('pane-side')]
+    document.elementsFromPoint = () => stack
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 5, clientY: 5 }))
+    vi.advanceTimersByTime(299)
+    expect(el('r1').hasAttribute('data-gd-hover')).toBe(false)
+    vi.advanceTimersByTime(2)
+    expect(el('r1').hasAttribute('data-gd-hover')).toBe(true)
+    expect(el('r2').hasAttribute('data-gd-hover')).toBe(false)
+    stack = [el('app')]
+    vi.advanceTimersByTime(100)
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 900, clientY: 900 }))
+    expect(el('r1').hasAttribute('data-gd-hover')).toBe(false)
+  })
+  it('stop() removes every mark', () => {
+    stop = watchBlur(window, wa).stop
+    stop(); stop = null
+    expect(marked()).toEqual([])
+  })
+})
+
 describe('presets and the stored flag', () => {
-  it('only x, threads, instagram and facebook have a hint', () => {
-    expect(PRESETS.filter((p) => p.blurMedia).map((p) => p.id).sort()).toEqual(['facebook', 'instagram', 'threads', 'x'])
+  it('only x, threads, instagram, facebook and whatsapp have a hint; whatsapp is in items mode', () => {
+    expect(PRESETS.filter((p) => p.blurMedia).map((p) => p.id).sort()).toEqual(['facebook', 'instagram', 'threads', 'whatsapp', 'x'])
+    const wa = PRESETS.find((p) => p.id === 'whatsapp')!.blurMedia!
+    expect(wa.container).toBe('#app')
+    expect(wa.items).toEqual(expect.arrayContaining(['#pane-side [role="listitem"]', '#pane-side [role="row"]', '#main header', '#main [data-id]']))
+    expect(wa.exclude).toEqual(expect.arrayContaining(['footer', '[contenteditable="true"]']))
   })
   it('setBlurMedia stores the flag per account, default off', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gd-blur-'))
@@ -150,12 +204,18 @@ describe('AccountSheet blur toggle', () => {
   const acc = (serviceId: string, blurMedia?: boolean) => ({ id: 'a1', serviceId, label: 'L', colour: '#6d5bd0', blurMedia })
   it('is shown only for services with a hint and emits the flipped value', async () => {
     for (const s of ['x', 'threads', 'instagram', 'facebook']) expect(mount(AccountSheet, { props: { account: acc(s) } }).find('[aria-label="Blur media until hovered"]').exists()).toBe(true)
-    for (const s of ['whatsapp', 'discord', 'tiktok']) expect(mount(AccountSheet, { props: { account: acc(s) } }).find('[aria-label="Blur media until hovered"]').exists()).toBe(false)
+    for (const s of ['discord', 'tiktok']) expect(mount(AccountSheet, { props: { account: acc(s) } }).find('[aria-label="Blur media until hovered"]').exists()).toBe(false)
     const w = mount(AccountSheet, { props: { account: acc('x') } })
     const t = w.find('[aria-label="Blur media until hovered"]')
     expect(t.attributes('aria-checked')).toBe('false')
     await t.trigger('click')
     expect(w.emitted('blur')![0]).toEqual([true])
+    const wa = mount(AccountSheet, { props: { account: acc('whatsapp') } })
+    expect(wa.find('[aria-label="Privacy blur"]').exists()).toBe(true)
+    expect(wa.find('[aria-label="Blur media until hovered"]').exists()).toBe(false)
+    expect(wa.text()).toContain('Privacy blur')
+    await wa.find('[aria-label="Privacy blur"]').trigger('click')
+    expect(wa.emitted('blur')![0]).toEqual([true])
     expect(mount(AccountSheet, { props: { account: acc('x', true) } }).find('[aria-label="Blur media until hovered"]').attributes('aria-checked')).toBe('true')
   })
 })

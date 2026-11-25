@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { appRoot, dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setServiceEnabled, setZoom, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setKeepDeleted, setServiceEnabled, setZoom, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -388,7 +388,7 @@ function viewFor(a: Account): WebContentsView {
         contextIsolation: true,
         devTools,
         preload: join(__dirname, '../preload/index.js'),
-        additionalArguments: ['--gd-service', ...(presetFor(a.serviceId)?.postLink ? ['--gd-postlink=' + JSON.stringify(presetFor(a.serviceId)!.postLink)] : []), ...(presetFor(a.serviceId)?.blurMedia ? ['--gd-blur=' + JSON.stringify(presetFor(a.serviceId)!.blurMedia)] : []), ...(presetFor(a.serviceId)?.dragScroll ? ['--gd-dragscroll'] : [])]
+        additionalArguments: ['--gd-service', ...(presetFor(a.serviceId)?.postLink ? ['--gd-postlink=' + JSON.stringify(presetFor(a.serviceId)!.postLink)] : []), ...(presetFor(a.serviceId)?.blurMedia ? ['--gd-blur=' + JSON.stringify(presetFor(a.serviceId)!.blurMedia)] : []), ...(presetFor(a.serviceId)?.dragScroll ? ['--gd-dragscroll'] : []), ...(presetFor(a.serviceId)?.keepDeleted ? ['--gd-wakeep'] : [])]
       }
     })
     owner.set(v.webContents.id, a)
@@ -560,11 +560,14 @@ function createWindow(): BrowserWindow {
   const enabled = () => accounts.filter((a) => !disabled.has(a.serviceId))
   let selectedId = loadSelected(dir)
   if (!enabled().some((a) => a.id === selectedId)) selectedId = enabled()[0]?.id
+  // Accounts whose deleted-message keeper could not find WhatsApp's store (D47b); shown as a note in the sheet.
+  const keeperDown = new Set<string>()
   // Custom icons are cached files; the renderer gets them as data URLs.
   const snapshot = () => ({
-    accounts: accounts.map((a) =>
-      a.custom ? { ...a, custom: { ...a.custom, icon: readIcon(dir, a.custom.icon) } } : a
-    ),
+    accounts: accounts.map((a) => {
+      const row = keeperDown.has(a.id) ? { ...a, keeperUnavailable: true } : a
+      return a.custom ? { ...row, custom: { ...a.custom, icon: readIcon(dir, a.custom.icon) } } : row
+    }),
     selectedId,
     disabledServices: [...disabled],
     sidebarCollapsed
@@ -602,6 +605,17 @@ function createWindow(): BrowserWindow {
   ipcMain.removeAllListeners('idle:touch')
   ipcMain.removeHandler('blur:state')
   ipcMain.handle('blur:state', (e) => !!owner.get(e.sender.id)?.blurMedia)
+  // D47b: the keeper script only runs when the account switched it on; a failed hook reports 'unavailable' here.
+  ipcMain.removeHandler('wakeep:enabled')
+  ipcMain.handle('wakeep:enabled', (e) => !!owner.get(e.sender.id)?.keepDeleted)
+  ipcMain.removeAllListeners('wakeep:state')
+  ipcMain.on('wakeep:state', (e, s) => {
+    const a = owner.get(e.sender.id)
+    if (!a || (s !== 'ok' && s !== 'unavailable')) return
+    if (s === 'unavailable') keeperDown.add(a.id)
+    else keeperDown.delete(a.id)
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('accounts:zoom', snapshot())
+  })
   ipcMain.on('popup:request', (e, url) => {
     const a = owner.get(e.sender.id)
     const u = a && isUnlocked() ? acceptPopupRequest(url, a) : null
@@ -1004,6 +1018,17 @@ function createWindow(): BrowserWindow {
     const held = owner.get(v?.webContents.id ?? -1)
     if (held) held.blurMedia = !!on
     if (v && !v.webContents.isDestroyed()) v.webContents.send('blur:set', !!on)
+    return snapshot()
+  })
+  gipc.handle('accounts:keepdeleted', (_e: unknown, id: string, on: boolean) => {
+    if (!accounts.some((a) => a.id === id)) return snapshot()
+    accounts = orderedAccounts(setKeepDeleted(dir, id, !!on))
+    const v = views.get(id)
+    const held = owner.get(v?.webContents.id ?? -1)
+    if (held) held.keepDeleted = !!on
+    keeperDown.delete(id)
+    // The script is injected at page load, so a change takes effect with a reload.
+    if (v && !v.webContents.isDestroyed()) v.webContents.reload()
     return snapshot()
   })
   gipc.handle('accounts:add', async (_e: unknown, input: any) => {
