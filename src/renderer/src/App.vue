@@ -132,6 +132,10 @@ async function setBlur(id: string, on: boolean) {
   take(await window.guisedesk.setBlur(id, on))
 }
 
+async function setBlurPart(id: string, part: string, on: boolean) {
+  take(await window.guisedesk.setBlurPart(id, part, on))
+}
+
 async function setKeepDeleted(id: string, on: boolean) {
   take(await window.guisedesk.setKeepDeleted(id, on))
 }
@@ -267,6 +271,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
       @policy="(v) => setPolicy(sheetAccount!.id, v)"
       @mute="(m) => mute(sheetAccount!.id, m)"
       @blur="(on) => setBlur(sheetAccount!.id, on)"
+      @blur-part="(part, on) => setBlurPart(sheetAccount!.id, part, on)"
       @keep-deleted="(on) => setKeepDeleted(sheetAccount!.id, on)"
       @logout="logout(sheetAccount!.id)"
       @remove="removeAccount(sheetAccount!.id)"

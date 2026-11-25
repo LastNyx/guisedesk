@@ -9,12 +9,12 @@ import { logoStyle } from './logos'
 
 const props = defineProps<{
   account: {
-    id: string; serviceId: string; label: string; colour: string; idlePolicy?: string; muted?: boolean; blurMedia?: boolean; keepDeleted?: boolean; keeperUnavailable?: boolean; shareWith?: string
+    id: string; serviceId: string; label: string; colour: string; idlePolicy?: string; muted?: boolean; blurMedia?: boolean; blurParts?: Record<string, boolean>; keepDeleted?: boolean; keeperUnavailable?: boolean; shareWith?: string
     custom?: { name: string; icon?: string }
   }
   accounts?: { id: string; serviceId: string; label: string; shareWith?: string }[]
 }>()
-const emit = defineEmits<{ policy: [value: string]; mute: [muted: boolean]; blur: [on: boolean]; keepDeleted: [on: boolean]; logout: []; remove: []; done: [] }>()
+const emit = defineEmits<{ policy: [value: string]; mute: [muted: boolean]; blur: [on: boolean]; blurPart: [part: string, on: boolean]; keepDeleted: [on: boolean]; logout: []; remove: []; done: [] }>()
 
 const confirming = ref(false)
 const loggedOut = ref(false)
@@ -22,6 +22,7 @@ const loggedOut = ref(false)
 const host = computed(() => (props.account.shareWith ? props.accounts?.find((a) => a.id === props.account.shareWith) : undefined))
 const others = computed(() => onPartition(props.account, props.accounts ?? []).filter((a) => a.id !== props.account.id))
 const alsoOut = computed(() => others.value.map((a) => a.label).join(', '))
+const BLUR_PARTS = [['messages', 'Messages and media'], ['previews', 'Chat list previews'], ['avatars', 'Profile photos'], ['names', 'Names']] as const
 const blurLabel = computed(() => (props.account.serviceId === 'whatsapp' ? 'Privacy blur' : 'Blur media until hovered'))
 const serviceName = () => presetFor(props.account.serviceId)?.name ?? props.account.custom?.name ?? 'Custom site'
 
@@ -49,6 +50,12 @@ function logout() {
       <div v-if="presetFor(account.serviceId)?.blurMedia" class="sr mute">
         <span class="t"><b>{{ blurLabel }}</b><span>{{ account.serviceId === 'whatsapp' ? 'Chats and messages show when you rest the pointer on them' : 'Photos and video show when you rest the pointer on them' }}</span></span>
         <button class="tg" :class="{ on: account.blurMedia }" role="switch" :aria-checked="!!account.blurMedia" :aria-label="blurLabel" @click="emit('blur', !account.blurMedia)"></button>
+      </div>
+      <div v-if="account.serviceId === 'whatsapp'" class="blurparts">
+        <div v-for="[part, label] in BLUR_PARTS" :key="part" class="sr mute sub">
+          <span class="t"><b>{{ label }}</b></span>
+          <button class="tg" :class="{ on: account.blurParts?.[part] !== false }" role="switch" :aria-checked="account.blurParts?.[part] !== false" :aria-label="label" :data-part="part" :disabled="!account.blurMedia" @click="emit('blurPart', part, account.blurParts?.[part] === false)"></button>
+        </div>
       </div>
       <div v-if="presetFor(account.serviceId)?.keepDeleted" class="sr mute">
         <span class="t"><b>Keep deleted messages</b><span>Shows what a message said after it is deleted for everyone. Changing it reloads WhatsApp</span></span>

@@ -211,6 +211,8 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .sheet .seg { display: flex; padding: 3px; gap: 2px; margin-bottom: 14px; }
 .sheet .seg span { padding: 4px 8px; border-radius: 6px; flex: auto; text-align: center; white-space: nowrap; }
 .sheet .sr.mute { padding: 4px 0; }
+.sheet .blurparts { padding-left: 14px; }
+.tg:disabled { opacity: 0.4; }
 .sheet .btn { cursor: pointer; }
 .sheet .rm { margin-right: auto; }
 .sheet .confirm .btns { margin-top: 12px; }

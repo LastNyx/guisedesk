@@ -18,6 +18,7 @@ interface AccountRow {
   order: number
   muted?: boolean
   blurMedia?: boolean
+  blurParts?: Partial<Record<'messages' | 'previews' | 'avatars' | 'names', boolean>>
   keepDeleted?: boolean
   keeperUnavailable?: boolean
   zoom?: number
@@ -105,6 +106,8 @@ interface Window {
     mute(id: string, muted: boolean): Promise<Snapshot>
     /** Blur media in an account's view until hovered (D42, D43). */
     setBlur(id: string, on: boolean): Promise<Snapshot>
+    /** One WhatsApp privacy blur part on or off (D48). */
+    setBlurPart(id: string, part: string, on: boolean): Promise<Snapshot>
     setKeepDeleted(id: string, on: boolean): Promise<Snapshot>
     /** An external link matches several accounts (D40): pick one, 'browser', or null to cancel. */
     onLinkChoose(cb: (r: LinkChoice) => void): void

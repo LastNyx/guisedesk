@@ -1,4 +1,5 @@
 // Data only: service presets. No electron imports (the renderer reads this too).
+import type { BlurHint } from '../preload/blur'
 export type Kind = 'chat' | 'feed'
 
 export interface Preset {
@@ -18,7 +19,7 @@ export interface Preset {
   /** Selectors for a post that is not a link: its container and the permalink inside it (D38). */
   postLink?: { container: string; link: string }
   /** Posts container whose big media (by rendered size) is blurred until hovered (D42, D43). */
-  blurMedia?: { container: string; items?: string[]; exclude?: string[] }
+  blurMedia?: BlurHint
   /** The service can keep text of messages deleted for everyone (D47b); each account switches it on. */
   keepDeleted?: boolean
   /** Mouse drag scrolls sideways rows of media (D44). */
@@ -60,11 +61,17 @@ const BLUR: Record<string, NonNullable<Preset['blurMedia']>> = {
   threads: { container: '[data-pressable-container]' },
   instagram: { container: 'article' },
   facebook: { container: '[role="article"]' },
-  // Items mode (D47): whole chat rows, the open chat's header and every message; the compose box stays readable.
+  // Parts mode (D48): the smallest element of each part (messages, chat-list previews, avatars, names), lightly blurred.
   whatsapp: {
     container: '#app',
-    items: ['#pane-side [role="listitem"]', '#pane-side [role="row"]', '#main header', '#main [data-id]'],
-    exclude: ['footer', '[contenteditable="true"]']
+    parts: {
+      messages: ['#main [data-id] .copyable-text', '#main [data-id] span.selectable-text', '#main [data-id] img', '#main [data-id] video'],
+      previews: ['#pane-side [role="gridcell"] > div:nth-child(2) span[dir]'],
+      avatars: ['#pane-side img', '#main header img'],
+      names: ['#pane-side [role="gridcell"] > div:first-child span[title]', '#pane-side [role="gridcell"] > div:first-child span[dir="auto"]', '#main header span[title]', '#main header span[dir="auto"]']
+    },
+    exclude: ['footer', '[contenteditable="true"]'],
+    strength: 'light'
   }
 }
 for (const x of PRESETS) if (BLUR[x.id]) x.blurMedia = BLUR[x.id]

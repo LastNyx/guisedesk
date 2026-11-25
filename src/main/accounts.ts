@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeAtomic, type Fs } from './atomic'
+import { PARTS, type Part } from '../preload/blur'
 import { checkShare, validateNewAccount, type NewAccountInput } from './validate'
 
 export interface Account {
@@ -14,6 +15,8 @@ export interface Account {
   muted?: boolean
   /** Blur media in the service view until hovered (D42, D43). */
   blurMedia?: boolean
+  /** WhatsApp privacy blur parts (D48); a missing flag means on. */
+  blurParts?: Partial<Record<Part, boolean>>
   /** Keep the text of messages deleted for everyone (WhatsApp only, D47b). */
   keepDeleted?: boolean
   /** Chromium zoom level (D32); missing = 0 (100%). */
@@ -92,6 +95,14 @@ export function setMuted(dir: string, id: string, muted: boolean): Account[] {
 /** Sets one account's blur-media flag (D42) and returns the saved list. */
 export function setBlurMedia(dir: string, id: string, blurMedia: boolean): Account[] {
   const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, blurMedia } : a))
+  saveAccounts(dir, accounts)
+  return accounts
+}
+
+/** Sets one WhatsApp blur part flag (D48) and returns the saved list. */
+export function setBlurPart(dir: string, id: string, part: Part, on: boolean): Account[] {
+  if (!PARTS.includes(part)) throw new Error('Unknown blur part')
+  const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, blurParts: { ...a.blurParts, [part]: on } } : a))
   saveAccounts(dir, accounts)
   return accounts
 }
