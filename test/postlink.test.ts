@@ -47,9 +47,13 @@ describe('parseHint', () => {
 })
 
 describe('threads preset', () => {
-  it('carries the post link hint, other services none', () => {
-    expect(PRESETS.find((x) => x.id === 'threads')?.postLink).toEqual(hint)
-    expect(PRESETS.filter((x) => x.id !== 'threads' && x.postLink)).toEqual([])
+  it('carries the post link hint; x, instagram, facebook have hints (D46), others none', () => {
+    const h = (id: string) => PRESETS.find((x) => x.id === id)?.postLink
+    expect(h('threads')).toEqual(hint)
+    expect(h('x')).toEqual({ container: 'article', link: 'a[href*="/status/"]:has(time)' })
+    expect(h('instagram')).toEqual({ container: 'article', link: 'a[href*="/p/"], a[href*="/reel/"]' })
+    expect(h('facebook')).toEqual({ container: '[role="article"]', link: 'a[href*="/posts/"], a[href*="/permalink"], a[href*="story_fbid"]' })
+    expect(PRESETS.filter((x) => !['threads', 'x', 'instagram', 'facebook'].includes(x.id) && x.postLink)).toEqual([])
   })
 })
 

@@ -45,6 +45,11 @@ if (service) {
   // D38: a middle-click on a JS-routed post (not inside a real <a>) asks main for a popup of its permalink.
   const hint = parseHint(process.argv)
   if (hint) {
+    // D46: main asks for the post under the cursor when the context menu opens.
+    ipcRenderer.on('post:at', (_e, id: number, x: number, y: number) => {
+      const t = document.elementFromPoint(x, y)
+      ipcRenderer.send('post:at-result', id, t ? pickPostLink(t, hint) : null)
+    })
     window.addEventListener('auxclick', (e) => {
       const t = e.target
       if (e.button !== 1 || !(t instanceof Element) || t.closest('a')) return

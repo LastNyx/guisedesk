@@ -33,6 +33,14 @@ const p = (
 
 const META = ['instagram', 'threads', 'facebook']
 
+// Best effort post permalink hints (D38, D46); they drift as the sites change.
+const POSTLINK: Record<string, NonNullable<Preset['postLink']>> = {
+  threads: { container: '[data-pressable-container]', link: 'a[href*="/post/"]' },
+  x: { container: 'article', link: 'a[href*="/status/"]:has(time)' },
+  instagram: { container: 'article', link: 'a[href*="/p/"], a[href*="/reel/"]' },
+  facebook: { container: '[role="article"]', link: 'a[href*="/posts/"], a[href*="/permalink"], a[href*="story_fbid"]' }
+}
+
 export const PRESETS: Preset[] = [
   p('whatsapp', 'WhatsApp', 'https://web.whatsapp.com/', 'W', '#25d366', 'chat', ['whatsapp.com', 'whatsapp.net'], ['whatsapp.com']),
   p('discord', 'Discord', 'https://discord.com/app', 'D', '#5865f2', 'chat', ['discord.com', 'discordapp.com', 'discord.gg', 'discordapp.net'], ['discord.com', 'discord.gg']),
@@ -42,7 +50,7 @@ export const PRESETS: Preset[] = [
   p('threads', 'Threads', 'https://www.threads.com/', '@', '#000000', 'feed', ['threads.com', 'threads.net', 'instagram.com', 'cdninstagram.com', 'fbcdn.net'], ['threads.com', 'threads.net']),
   p('tiktok', 'TikTok', 'https://www.tiktok.com/', 'T', '#000000', 'feed', ['tiktok.com', 'tiktokcdn.com', 'tiktokv.com'], ['tiktok.com'])
 ].map((x) => (META.includes(x.id) ? { ...x, family: 'meta' as const } : x))
-  .map((x) => (x.id === 'threads' ? { ...x, postLink: { container: '[data-pressable-container]', link: 'a[href*="/post/"]' } } : x))
+  .map((x) => (POSTLINK[x.id] ? { ...x, postLink: POSTLINK[x.id] } : x))
 
 // Best effort container selectors (D42, D43); they drift as the sites change. Media is picked by size, not selector.
 const BLUR: Record<string, NonNullable<Preset['blurMedia']>> = {

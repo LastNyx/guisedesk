@@ -2,12 +2,18 @@
 import { unwrap } from './links'
 import { presetFor } from './presets'
 import { sidebarOrder } from './services'
+import { partitionKey } from './sharing'
 
 interface Acc {
+  id: string
+  shareWith?: string
   serviceId: string
   order: number
   custom?: { hosts: string[] }
 }
+
+/** Hosts that count as the account's own service (preset home hosts, or a custom site's hosts). */
+export const homesOf = (a: Acc): string[] => presetFor(a.serviceId)?.homeHosts ?? a.custom?.hosts ?? []
 
 /** Accounts (enabled services only, in sidebar order) whose service has the link's host as a home host or subdomain of one. */
 export function candidatesFor<T extends Acc>(url: string, accounts: T[], disabled: string[]): T[] {
@@ -19,8 +25,23 @@ export function candidatesFor<T extends Acc>(url: string, accounts: T[], disable
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return []
   const host = u.hostname.toLowerCase()
-  const homes = (a: T) => presetFor(a.serviceId)?.homeHosts ?? a.custom?.hosts ?? []
   return sidebarOrder(accounts.filter((a) => !disabled.includes(a.serviceId))).filter((a) =>
-    homes(a).some((h) => host === h || host.endsWith('.' + h))
+    homesOf(a).some((h) => host === h || host.endsWith('.' + h))
   )
+}
+
+/** Other enabled accounts of this account's service on a different session partition, in sidebar order (D46). */
+export function siblingsFor<T extends Acc>(account: T, accounts: T[], disabled: string[]): T[] {
+  if (disabled.includes(account.serviceId)) return []
+  return sidebarOrder(accounts.filter((a) => a.serviceId === account.serviceId && partitionKey(a) !== partitionKey(account) && homesOf(a).join() === homesOf(account).join()))
+}
+
+/** The URL "Open in another account" opens (D46): a home-host link, else the post under the cursor, else the page. */
+export function pickTarget(linkURL: string, postURL: string | null | undefined, pageURL: string, homeHosts: string[]): string {
+  try {
+    const u = new URL(unwrap(linkURL))
+    const h = u.hostname.toLowerCase()
+    if ((u.protocol === 'http:' || u.protocol === 'https:') && homeHosts.some((x) => h === x || h.endsWith('.' + x))) return u.href
+  } catch { /* not a URL */ }
+  return postURL || pageURL
 }
