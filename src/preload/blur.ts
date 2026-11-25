@@ -23,6 +23,17 @@ const SCAN_MS = 50
 
 /** CSS that blurs media marked by the watcher until it is hovered. */
 export function blurCss(strength?: 'light'): string {
+  // Light (WhatsApp, D48 amendment): a filter on a text element is cut at its box (parents clip with overflow:hidden),
+  // which reads as a blurred rectangle. Text instead turns into its own soft shadow, which dissolves at the glyphs;
+  // images and video inside a blurred part keep a filter, with edges faded by a mask so they don't end in a hard box.
+  if (strength === 'light') {
+    const media = 'img[data-gd-blur]:not([data-gd-hover]), video[data-gd-blur]:not([data-gd-hover]), [data-gd-blur]:not([data-gd-hover]) img, [data-gd-blur]:not([data-gd-hover]) video'
+    return [
+      `[data-gd-blur]:not(img):not(video):not([data-gd-hover]), [data-gd-blur]:not(img):not(video):not([data-gd-hover]) * { -webkit-text-fill-color: transparent; text-shadow: 0 0 7px currentColor; transition: text-shadow 300ms ease-out, -webkit-text-fill-color 300ms ease-out; }`,
+      `${media} { filter: blur(5px); -webkit-mask-image: linear-gradient(to right, transparent, #000 min(14px, 12%), #000 max(calc(100% - 14px), 88%), transparent), linear-gradient(to bottom, transparent, #000 min(14px, 12%), #000 max(calc(100% - 14px), 88%), transparent); -webkit-mask-composite: source-in; mask-image: linear-gradient(to right, transparent, #000 min(14px, 12%), #000 max(calc(100% - 14px), 88%), transparent), linear-gradient(to bottom, transparent, #000 min(14px, 12%), #000 max(calc(100% - 14px), 88%), transparent); mask-composite: intersect; transition: filter 300ms ease-out; }`,
+      `[data-gd-blur][data-gd-hover], [data-gd-blur][data-gd-hover] * { transition: filter 400ms ease-out, text-shadow 400ms ease-out, -webkit-text-fill-color 400ms ease-out; }`
+    ].join('\n')
+  }
   return `[data-gd-blur]:not([data-gd-hover]) { filter: blur(${strength === 'light' ? 5 : 28}px); transition: filter 300ms ease-out; }\n[data-gd-blur][data-gd-hover] { filter: blur(0); transition: filter 400ms ease-out; }`
 }
 

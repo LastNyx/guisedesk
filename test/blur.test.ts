@@ -234,6 +234,14 @@ describe('WhatsApp blur parts (D48)', () => {
     expect(blurCss('light')).not.toContain('28px')
     expect(blurCss()).toContain('filter: blur(28px)')
   })
+  it('light text dissolves with a text shadow (no box-shaped filter edge); media keeps the filter', () => {
+    const css = blurCss('light')
+    expect(css).toMatch(/\[data-gd-blur\]:not\(img\):not\(video\):not\(\[data-gd-hover\]\)[^{]*\{[^}]*-webkit-text-fill-color: transparent[^}]*text-shadow: 0 0 \d+px/)
+    expect(css).toMatch(/img\[data-gd-blur\]:not\(\[data-gd-hover\]\)[^{]*\{[^}]*filter: blur\(5px\)/)
+    expect(css).toMatch(/\[data-gd-blur\]:not\(\[data-gd-hover\]\) img[^{]*\{[^}]*filter: blur\(5px\)/)
+    expect(css).not.toMatch(/\[data-gd-blur\]:not\(\[data-gd-hover\]\) \{ filter/)
+    expect(css).toMatch(/img\[data-gd-blur\][^{]*\{[^}]*mask-image: linear-gradient/)
+  })
   it('hint argument keeps parts and strength', () => {
     expect(parseBlurHint(['--gd-blur=' + JSON.stringify(hint)])).toEqual(hint)
   })
