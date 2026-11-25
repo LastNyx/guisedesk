@@ -36,7 +36,6 @@ export function shieldMenuItems(s: BlockInfo | undefined, adsOn: boolean): { lab
     ...(top.length ? [{ label: '', enabled: false, separator: true as const }, { label: 'Most blocked on this page', enabled: false }, ...top.map(([h, n]) => ({ label: `${h}  ·  ${n}`, enabled: false }))] : []),
     { label: '', enabled: false, separator: true },
     ...(b.popup ? [{ label: 'Open blocked pop-up', enabled: true, action: 'open-popup' }] : []),
-    { label: 'Reload page', enabled: true, action: 'reload' },
     { label: 'Blocking settings...', enabled: true, action: 'settings' }
   ]
 }

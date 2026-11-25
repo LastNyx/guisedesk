@@ -59,7 +59,7 @@ describe('shield menu', () => {
     s.popup('a', 'https://p/')
     const labels = shieldMenuItems(s.get('a'), true).filter((i) => !i.separator).map((i) => i.label)
     expect(labels).toEqual(['Ad blocking is on', 'This page: 3 requests blocked', 'Since GuiseDesk started: 3', 'Pop-ups blocked: 1',
-      'Most blocked on this page', 'doubleclick.net  ·  2', 'ads.x.com  ·  1', 'Open blocked pop-up', 'Reload page', 'Blocking settings...'])
+      'Most blocked on this page', 'doubleclick.net  ·  2', 'ads.x.com  ·  1', 'Open blocked pop-up', 'Blocking settings...'])
     expect(shieldMenuItems(undefined, true).map((i) => i.label)).toContain('This page: 0 requests blocked')
     expect(hostOf('nope')).toBe('nope')
     vi.useRealTimers()

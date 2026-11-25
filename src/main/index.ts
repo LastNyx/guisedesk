@@ -667,8 +667,7 @@ function createWindow(): BrowserWindow {
           label: i.label,
           enabled: i.enabled,
           click: () => {
-            if (i.action === 'reload') views.get(a.id)?.webContents.reload()
-            else if (i.action === 'settings') win.webContents.send('settings:open-tab', 'General')
+            if (i.action === 'settings') win.webContents.send('settings:open-tab', 'General')
             else if (i.action === 'open-popup') {
               const v = views.get(a.id)
               const url = v && !v.webContents.isDestroyed() ? blockState.take(a.id) : undefined
