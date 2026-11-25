@@ -23,6 +23,17 @@ onMounted(async () => {
   dl.value = await window.guisedesk.downloads()
 })
 
+const block = ref({ ads: false, popups: true })
+onMounted(async () => {
+  const b = await window.guisedesk.blocking?.()
+  if (b) block.value = b
+})
+
+async function toggleBlock(key: 'ads' | 'popups') {
+  const next = !block.value[key]
+  if (await window.guisedesk.setBlocking({ [key]: next })) block.value = { ...block.value, [key]: next }
+}
+
 async function toggleAsk() {
   const next = !dl.value.ask
   if (await window.guisedesk.setDownloadsAsk(next)) dl.value = { ...dl.value, ask: next }
@@ -57,6 +68,17 @@ async function toggle() {
       <div class="sr">
         <span class="t"><b>Ask where to save each time</b><span>Otherwise files go straight to the folder.</span></span>
         <button class="tg" :class="{ on: dl.ask }" role="switch" :aria-checked="dl.ask" aria-label="Ask where to save each time" @click="toggleAsk"></button>
+      </div>
+    </div>
+    <div class="card">
+      <h4>Blocking</h4>
+      <div class="sr">
+        <span class="t"><b>Block ads and trackers</b><span>EasyList and uBlock Origin ad and tracker lists, in every account. Open pages reload.</span></span>
+        <button class="tg" :class="{ on: block.ads }" role="switch" :aria-checked="block.ads" aria-label="Block ads and trackers" @click="toggleBlock('ads')"></button>
+      </div>
+      <div class="sr">
+        <span class="t"><b>Block pop-ups</b><span>Windows a page opens without a click, and ad pages, are dropped. Middle-click and sign-in windows still open.</span></span>
+        <button class="tg" :class="{ on: block.popups }" role="switch" :aria-checked="block.popups" aria-label="Block pop-ups" @click="toggleBlock('popups')"></button>
       </div>
     </div>
     <div class="card">

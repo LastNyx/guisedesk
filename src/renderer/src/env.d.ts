@@ -24,6 +24,11 @@ interface AccountRow {
   custom?: { name: string; url: string; icon?: string }
 }
 
+interface BlockSnapshot {
+  ads: boolean
+  accounts: Record<string, { blocked: number; popup?: string; total?: number; popups?: number; hosts?: Record<string, number> }>
+}
+
 interface Snapshot {
   accounts: AccountRow[]
   selectedId?: string
@@ -120,6 +125,18 @@ interface Window {
     downloads(): Promise<{ dir: string; ask: boolean }>
     setDownloadsAsk(ask: boolean): Promise<boolean>
     pickDownloadsDir(): Promise<string | undefined>
+    /** Ad and pop-up blocking (D45): both on by default; setBlocking saves and applies (ads reload the open views). */
+    blocking(): Promise<{ ads: boolean; popups: boolean }>
+    setBlocking(v: { ads?: boolean; popups?: boolean }): Promise<boolean>
+    /** Top bar chips (D45): blocked requests per account since the view loaded, and the last dropped pop-up. */
+    blockState(): Promise<BlockSnapshot>
+    onBlock(cb: (s: BlockSnapshot) => void): void
+    /** "Open anyway" on the Pop-up blocked chip: opens the dropped URL with the normal window.open handling. */
+    openBlockedPopup(id: string): Promise<boolean>
+    /** Shield chip click: main shows the stats menu. */
+    shieldMenu(id: string): void
+    /** Main asks for a Settings tab (the shield menu's Blocking settings). */
+    onOpenSettingsTab(cb: (tab: string) => void): void
     add(input: {
       serviceId: string
       label: string
