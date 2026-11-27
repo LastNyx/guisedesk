@@ -146,6 +146,9 @@ async function setKeepDeleted(id: string, on: boolean) {
 
 // Ad and pop-up blocking chips (D45), pushed by main.
 const block = ref<BlockSnapshot>({ ads: false, accounts: {} })
+function extensionMenu(id: string) {
+  window.guisedesk.extensionMenu(id)
+}
 function shieldMenu(id: string) {
   window.guisedesk.shieldMenu(id)
 }
@@ -263,7 +266,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
   <div v-else class="shell">
     <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" :update="update.state === 'available'" @update="openUpdates" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
     <main class="main">
-      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" />
+      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" @extensions="extensionMenu(current!.id)" />
       <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" :update="update" :tab="settingsTab" @check="checkUpdate" @apply="applyUpdate" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" />
       <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
       <div v-else class="panel"></div>
@@ -277,7 +280,6 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
       @blur="(on) => setBlur(sheetAccount!.id, on)"
       @blur-part="(part, on) => setBlurPart(sheetAccount!.id, part, on)"
       @keep-deleted="(on) => setKeepDeleted(sheetAccount!.id, on)"
-      @extension="(x, on) => setExtension(sheetAccount!.id, x, on)"
       @logout="logout(sheetAccount!.id)"
       @remove="removeAccount(sheetAccount!.id)"
       @done="sheetId = undefined"

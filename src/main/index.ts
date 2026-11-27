@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
@@ -20,7 +20,8 @@ import { createBlockState, shieldMenuItems } from './blockstate'
 import { createDispatcher } from './webrequest'
 import { ElectronChromeExtensions } from 'electron-chrome-extensions'
 import { downloadExtension } from 'electron-chrome-web-store'
-import { createExtensionFetcher, enabledFor, extensionsDir, isKnownFor, KNOWN_EXTENSIONS, toggled } from './extensions'
+import { createExtensionFetcher, enabledFor, extensionsDir, listInstalled, parseExtensionId, toggled } from './extensions'
+import { appendEvent, LOGIN_COOKIES, lostLogins } from './events'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
@@ -373,6 +374,7 @@ let onDownloadDone: (ok: boolean, file: string) => void = () => {}
 // then installExtension downloads from the Chrome Web Store into <data>/extensions and loads it into that session.
 const extSessions = new WeakMap<Electron.Session, ElectronChromeExtensions>()
 const extErrors = new Map<string, string>()
+const extTabs = new WeakSet<Electron.WebContents>()
 // One shared download per extension (concurrent installs collided on the same folder: ENOTEMPTY).
 const fetchExtension = createExtensionFetcher(extensionsDir(dir), downloadExtension)
 // One load per session and extension at a time.
@@ -398,16 +400,17 @@ function extApiFor(ses: Electron.Session): ElectronChromeExtensions {
   }
   return x
 }
+const installedIds = () => listInstalled(extensionsDir(dir)).map((x) => x.id)
 /** Loads the account's turned-on extensions into its session (downloads on first use); unloads the ones turned off. */
 async function applyExtensions(a: Account, wc: Electron.WebContents, win?: Electron.BaseWindow): Promise<boolean> {
-  const want = enabledFor(a)
+  const want = enabledFor(a, installedIds())
   const ses = wc.session
   const sx = ses.extensions
   if (!want.length && !sx.getAllExtensions().length) return false
   const api = extApiFor(ses)
-  if (win) api.addTab(wc, win)
+  if (win && !extTabs.has(wc)) { api.addTab(wc, win); extTabs.add(wc) }
   let changed = false
-  for (const e of sx.getAllExtensions()) if (KNOWN_EXTENSIONS.some((k) => k.id === e.id) && !want.includes(e.id)) { sx.removeExtension(e.id); changed = true }
+  for (const e of sx.getAllExtensions()) if (!want.includes(e.id)) { sx.removeExtension(e.id); changed = true }
   for (const id of want) {
     if (sx.getExtension(id)) continue
     try {
@@ -420,15 +423,24 @@ async function applyExtensions(a: Account, wc: Electron.WebContents, win?: Elect
       }
       await p
       extErrors.delete(a.id)
-      onExtChange()
       changed = true
     } catch (err) {
-      console.error('[guisedesk] extension install failed', id, err)
+      console.error('[guisedesk] extension load failed', id, err)
       extErrors.set(a.id, String((err as Error)?.message ?? err))
-      onExtChange()
     }
   }
+  onExtChange()
   return changed
+}
+/** The toolbar click on an extension: its popup, or chrome.action.onClicked for extensions without one. */
+function activateExtension(wc: Electron.WebContents, extId: string, win: BrowserWindow): void {
+  const api = extSessions.get(wc.session) as unknown as { api?: { browserAction?: { activateClick(d: object): void } } } | undefined
+  const [w] = win.getSize()
+  try {
+    api?.api?.browserAction?.activateClick({ eventType: 'click', extensionId: extId, tabId: wc.id, anchorRect: { x: w - 360, y: 56, width: 32, height: 32 } })
+  } catch (err) {
+    console.error('[guisedesk] extension click failed', extId, err)
+  }
 }
 function hookDownloads(ses: Electron.Session): void {
   if (hookedSessions.has(ses)) return
@@ -476,7 +488,7 @@ function viewFor(a: Account): WebContentsView {
     // Extensions (D49) must be loaded before the page so their content scripts run on it.
     const wc = v.webContents
     const start = preset?.startUrl ?? a.custom?.url ?? 'about:blank'
-    if (enabledFor(a).length) void applyExtensions(a, wc, mainWin).finally(() => !wc.isDestroyed() && wc.loadURL(start))
+    if (enabledFor(a, installedIds()).length) void applyExtensions(a, wc, mainWin).finally(() => !wc.isDestroyed() && wc.loadURL(start))
     else wc.loadURL(start)
     views.set(a.id, v)
   }
@@ -835,6 +847,7 @@ function createWindow(): BrowserWindow {
   ipcMain.handle('lock:reset', async (e, typed) => {
     if (!fromApp(e) || lock.state() === 'setup') return { error: 'Refused' }
     if (typed !== RESET_WORD) return { error: `Type ${RESET_WORD} to confirm` }
+    appendEvent(dir, 'reset (all data wiped from the app)')
     const keys = new Set([...loadAccounts(dir).map(partitionKey), ...views.keys()])
     if (attached) detach(win, attached)
     attached = undefined
@@ -967,6 +980,7 @@ function createWindow(): BrowserWindow {
     if (!a) return snapshot()
     // A shared login logs out every account on it, so their popups go too.
     for (const x of onPartition(a, accounts)) popups.closeFor(x.id)
+    appendEvent(dir, `logout ${id} (from the app)`)
     await logOut(dir, id, {
       clearStorage,
       closeView: () => {},
@@ -981,6 +995,7 @@ function createWindow(): BrowserWindow {
     if (!accounts.some((a) => a.id === id)) return snapshot()
     popups.closeFor(id)
     try {
+      appendEvent(dir, `remove account ${id} (from the app)`)
       await removeAccount(dir, id, {
         clearStorage,
         reloadView: () => {},
@@ -1106,10 +1121,41 @@ function createWindow(): BrowserWindow {
   })
   // Chrome extension switch (D49): saved, then loaded or unloaded in the live session and WhatsApp reloads.
   onExtChange = () => { if (!win.isDestroyed() && isUnlocked()) win.webContents.send('accounts:zoom', snapshot()) }
-  gipc.handle('accounts:extension', async (_e: unknown, id: string, extId: string, on: boolean) => {
+  const extList = () => listInstalled(extensionsDir(dir)).map(({ id, name, version }) => ({ id, name, version }))
+  gipc.handle('ext:list', (e: { sender: { id: number } }) => (fromApp(e) ? extList() : []))
+  // Add from a Chrome Web Store link (or id): downloaded once, then off for every account until turned on.
+  gipc.handle('ext:install', async (e: { sender: { id: number } }, link: string) => {
+    if (!fromApp(e)) return { error: 'Refused' }
+    const id = parseExtensionId(link)
+    if (!id) return { error: 'Paste a Chrome Web Store link, like https://chromewebstore.google.com/detail/name/<id>' }
+    try {
+      await fetchExtension(id)
+      appendEvent(dir, `extension installed ${id}`)
+      return { ok: true, list: extList() }
+    } catch (err) {
+      return { error: `Could not download it: ${String((err as Error)?.message ?? err)}` }
+    }
+  })
+  gipc.handle('ext:remove', async (e: { sender: { id: number } }, id: string) => {
+    if (!fromApp(e) || typeof id !== 'string' || !/^[a-p]{32}$/.test(id)) return extList()
+    for (const a of accounts) if (a.extensions?.includes(id)) accounts = orderedAccounts(setExtensions(dir, a.id, toggled(a.extensions, id, false)))
+    for (const [aid, v] of views) {
+      if (v.webContents.isDestroyed()) continue
+      const sx = v.webContents.session.extensions
+      if (sx.getExtension(id)) { sx.removeExtension(id); v.webContents.reload() }
+      const held = owner.get(v.webContents.id)
+      if (held) held.extensions = accounts.find((x) => x.id === aid)?.extensions
+    }
+    rmSync(join(extensionsDir(dir), id), { recursive: true, force: true })
+    appendEvent(dir, `extension removed ${id}`)
+    onExtChange()
+    return extList()
+  })
+  // On or off for one account: saved, loaded or unloaded in the live session, and the page reloads.
+  const setAccountExtension = async (id: string, extId: string, on: boolean) => {
     const a0 = accounts.find((a) => a.id === id)
-    if (!a0 || typeof extId !== 'string' || !isKnownFor(extId, a0.serviceId)) return snapshot()
-    accounts = orderedAccounts(setExtensions(dir, id, toggled(a0.extensions, extId, !!on)))
+    if (!a0 || !installedIds().includes(extId)) return
+    accounts = orderedAccounts(setExtensions(dir, id, toggled(a0.extensions, extId, on)))
     const v = views.get(id)
     const held = owner.get(v?.webContents.id ?? -1)
     const a = accounts.find((x) => x.id === id)!
@@ -1118,7 +1164,27 @@ function createWindow(): BrowserWindow {
       await applyExtensions(held ?? a, v.webContents, win)
       v.webContents.reload()
     }
+  }
+  gipc.handle('accounts:extension', async (_e: unknown, id: string, extId: string, on: boolean) => {
+    if (typeof extId === 'string') await setAccountExtension(id, extId, !!on)
     return snapshot()
+  })
+  // Puzzle button in the top bar: a native menu (it draws above the page) with every installed extension.
+  gipc.on('ext:menu', (e: { sender: { id: number } }, id: string) => {
+    const a = fromApp(e) && accounts.find((x) => x.id === id)
+    if (!a) return
+    const v = views.get(a.id)
+    const list = extList()
+    const on = new Set(a.extensions ?? [])
+    const items: Electron.MenuItemConstructorOptions[] = list.length
+      ? list.flatMap((x) => [
+          { label: x.name, enabled: on.has(x.id) && !!v, click: () => v && activateExtension(v.webContents, x.id, win) },
+          { label: `On for ${a.label}`, type: 'checkbox' as const, checked: on.has(x.id), click: () => void setAccountExtension(a.id, x.id, !on.has(x.id)).then(onExtChange) },
+          { type: 'separator' as const }
+        ])
+      : [{ label: 'No extensions yet', enabled: false }, { type: 'separator' as const }]
+    items.push({ label: 'Add or manage extensions...', click: () => win.webContents.send('settings:open-tab', 'Extensions') })
+    Menu.buildFromTemplate(items).popup({ window: win })
   })
   gipc.handle('accounts:keepdeleted', (_e: unknown, id: string, on: boolean) => {
     if (!accounts.some((a) => a.id === id)) return snapshot()
@@ -1226,7 +1292,47 @@ function createWindow(): BrowserWindow {
   return win
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  appendEvent(dir, `start v${version} electron ${process.versions.electron}`)
+  createWindow()
+  setTimeout(() => void checkLogins(), 15_000)
+})
+
+/** Lost-login check (D50): compares each account's login cookie with the last start and logs any that vanished. */
+async function checkLogins(): Promise<void> {
+  try {
+    const file = join(dir, 'logins.json')
+    let prev: Record<string, boolean> = {}
+    try { prev = JSON.parse(readFileSync(file, 'utf8')) } catch { /* first run */ }
+    const now: Record<string, boolean> = {}
+    for (const a of loadAccounts(dir)) {
+      const rule = LOGIN_COOKIES[a.serviceId]
+      if (!rule?.names.length) continue
+      const ses = session.fromPartition(partitionOf(a))
+      const cookies = await ses.cookies.get({ domain: rule.domain })
+      now[a.id] = rule.names.every((n) => cookies.some((c) => c.name === n))
+    }
+    for (const id of lostLogins(prev, now)) {
+      const a = loadAccounts(dir).find((x) => x.id === id)
+      appendEvent(dir, `lost login ${a?.serviceId} "${a?.label}" (${id}): login cookie gone since last start`)
+    }
+    writeFileSync(file, JSON.stringify(now))
+  } catch (err) {
+    appendEvent(dir, `login check failed ${String(err)}`)
+  }
+}
 app.on('before-quit', () => {
   quitting = true
+  appendEvent(dir, 'quit')
+  // Write cookies and storage to disk before exit, so a quit or update right after a login keeps it.
+  for (const v of views.values()) {
+    if (v.webContents.isDestroyed()) continue
+    void v.webContents.session.cookies.flushStore().catch(() => {})
+    v.webContents.session.flushStorageData()
+  }
+})
+// Session end (logout/shutdown) and kill: same flush, then exit.
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(sig, () => {
+  appendEvent(dir, `signal ${sig}`)
+  app.quit()
 })

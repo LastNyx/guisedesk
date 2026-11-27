@@ -6,7 +6,6 @@ import { onPartition } from '../../main/sharing'
 import { initials } from './initials'
 import LogoGlyph from './LogoGlyph.vue'
 import { logoStyle } from './logos'
-import { extensionsFor } from '../../main/extensions'
 
 const props = defineProps<{
   account: {
@@ -15,7 +14,7 @@ const props = defineProps<{
   }
   accounts?: { id: string; serviceId: string; label: string; shareWith?: string }[]
 }>()
-const emit = defineEmits<{ policy: [value: string]; mute: [muted: boolean]; blur: [on: boolean]; blurPart: [part: string, on: boolean]; keepDeleted: [on: boolean]; extension: [id: string, on: boolean]; logout: []; remove: []; done: [] }>()
+const emit = defineEmits<{ policy: [value: string]; mute: [muted: boolean]; blur: [on: boolean]; blurPart: [part: string, on: boolean]; keepDeleted: [on: boolean]; logout: []; remove: []; done: [] }>()
 
 const confirming = ref(false)
 const loggedOut = ref(false)
@@ -63,10 +62,6 @@ function logout() {
         <button class="tg" :class="{ on: account.keepDeleted }" role="switch" :aria-checked="!!account.keepDeleted" aria-label="Keep deleted messages" @click="emit('keepDeleted', !account.keepDeleted)"></button>
       </div>
       <div v-if="presetFor(account.serviceId)?.keepDeleted && account.keepDeleted && account.keeperUnavailable" class="hint warn">Deleted-message keeper unavailable (WhatsApp changed)</div>
-      <div v-for="x in extensionsFor(account.serviceId)" :key="x.id" class="sr mute">
-        <span class="t"><b>{{ x.name }}</b><span>{{ x.hint }}</span></span>
-        <button class="tg" :class="{ on: account.extensions?.includes(x.id) }" role="switch" :aria-checked="!!account.extensions?.includes(x.id)" :aria-label="x.name" :data-ext="x.id" @click="emit('extension', x.id, !account.extensions?.includes(x.id))"></button>
-      </div>
       <div v-if="account.extError" class="hint warn">Extension could not be installed: {{ account.extError }}</div>
       <div v-if="host" class="hint share">Shares login with {{ host.label }}</div>
       <div v-else-if="others.length" class="hint share">Login shared with {{ others.map((a) => a.label).join(', ') }}</div>

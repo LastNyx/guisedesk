@@ -35,6 +35,12 @@ interface BlockSnapshot {
   accounts: Record<string, { blocked: number; popup?: string; total?: number; popups?: number; hosts?: Record<string, number> }>
 }
 
+interface ExtensionRow {
+  id: string
+  name: string
+  version: string
+}
+
 interface Snapshot {
   accounts: AccountRow[]
   selectedId?: string
@@ -114,6 +120,12 @@ interface Window {
     setKeepDeleted(id: string, on: boolean): Promise<Snapshot>
     /** Turn a known Chrome extension on or off for one account (D49); WhatsApp reloads. */
     setExtension(id: string, extId: string, on: boolean): Promise<Snapshot>
+    /** Installed Chrome extensions (D49), install from a store link, remove (off for every account). */
+    extensions(): Promise<ExtensionRow[]>
+    installExtension(link: string): Promise<{ ok: true; list: ExtensionRow[] } | { error: string }>
+    removeExtension(id: string): Promise<ExtensionRow[]>
+    /** Puzzle button: main shows the extensions menu for this account. */
+    extensionMenu(id: string): void
     /** An external link matches several accounts (D40): pick one, 'browser', or null to cancel. */
     onLinkChoose(cb: (r: LinkChoice) => void): void
     chooseLink(id: number, choice: string | null): void
