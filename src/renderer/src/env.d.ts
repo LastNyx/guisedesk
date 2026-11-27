@@ -20,6 +20,9 @@ interface AccountRow {
   blurMedia?: boolean
   blurParts?: Partial<Record<'messages' | 'previews' | 'avatars' | 'names', boolean>>
   keepDeleted?: boolean
+  /** Chrome extension ids on for this account (D49). */
+  extensions?: string[]
+  extError?: string
   keeperUnavailable?: boolean
   zoom?: number
   idlePolicy?: string
@@ -109,6 +112,8 @@ interface Window {
     /** One WhatsApp privacy blur part on or off (D48). */
     setBlurPart(id: string, part: string, on: boolean): Promise<Snapshot>
     setKeepDeleted(id: string, on: boolean): Promise<Snapshot>
+    /** Turn a known Chrome extension on or off for one account (D49); WhatsApp reloads. */
+    setExtension(id: string, extId: string, on: boolean): Promise<Snapshot>
     /** An external link matches several accounts (D40): pick one, 'browser', or null to cancel. */
     onLinkChoose(cb: (r: LinkChoice) => void): void
     chooseLink(id: number, choice: string | null): void

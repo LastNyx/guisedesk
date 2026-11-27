@@ -145,6 +145,7 @@ if (service) {
   setBlur: (id: string, on: boolean) => ipcRenderer.invoke('accounts:blur', id, on),
   setBlurPart: (id: string, part: string, on: boolean) => ipcRenderer.invoke('accounts:blurpart', id, part, on),
   setKeepDeleted: (id: string, on: boolean) => ipcRenderer.invoke('accounts:keepdeleted', id, on),
+  setExtension: (id: string, extId: string, on: boolean) => ipcRenderer.invoke('accounts:extension', id, extId, on),
   onOpenSettings: (cb: () => void) => ipcRenderer.on('settings:open', () => cb()),
   setServiceEnabled: (serviceId: string, enabled: boolean) => ipcRenderer.invoke('services:set', serviceId, enabled),
   setPolicy: (id: string, policy: string) => ipcRenderer.invoke('accounts:policy', id, policy),

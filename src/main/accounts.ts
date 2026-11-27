@@ -19,6 +19,8 @@ export interface Account {
   blurParts?: Partial<Record<Part, boolean>>
   /** Keep the text of messages deleted for everyone (WhatsApp only, D47b). */
   keepDeleted?: boolean
+  /** Chrome extension ids turned on for this account (D49). */
+  extensions?: string[]
   /** Chromium zoom level (D32); missing = 0 (100%). */
   zoom?: number
   /** Host account id whose session partition this account uses (D36). */
@@ -110,6 +112,13 @@ export function setBlurPart(dir: string, id: string, part: Part, on: boolean): A
 /** Sets one account's keep-deleted-messages flag (D47b) and returns the saved list. */
 export function setKeepDeleted(dir: string, id: string, keepDeleted: boolean): Account[] {
   const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, keepDeleted } : a))
+  saveAccounts(dir, accounts)
+  return accounts
+}
+
+/** Sets one account's Chrome extension list (D49) and returns the saved list. */
+export function setExtensions(dir: string, id: string, extensions: string[]): Account[] {
+  const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, extensions } : a))
   saveAccounts(dir, accounts)
   return accounts
 }

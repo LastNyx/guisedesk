@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { appRoot, dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setServiceEnabled, setZoom, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setExtensions, setServiceEnabled, setZoom, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -18,6 +18,9 @@ import { createAdblock } from './adblock'
 import { buildInWorker, loadEngineBytes, PRELOAD_PATH } from './adengine'
 import { createBlockState, shieldMenuItems } from './blockstate'
 import { createDispatcher } from './webrequest'
+import { ElectronChromeExtensions } from 'electron-chrome-extensions'
+import { installExtension } from 'electron-chrome-web-store'
+import { enabledFor, extensionsDir, isKnownFor, KNOWN_EXTENSIONS, toggled } from './extensions'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
@@ -365,6 +368,56 @@ function hookContextMenu(wc: Electron.WebContents): void {
 /** Downloads (D31): hooked once per account session (a session is shared by a rebuilt view). */
 const hookedSessions = new WeakSet<object>()
 let onDownloadDone: (ok: boolean, file: string) => void = () => {}
+
+// Chrome extensions per account (D49): electron-chrome-extensions once per session (chrome.tabs/windows APIs),
+// then installExtension downloads from the Chrome Web Store into <data>/extensions and loads it into that session.
+const extSessions = new WeakMap<Electron.Session, ElectronChromeExtensions>()
+const extErrors = new Map<string, string>()
+let onExtChange: () => void = () => {}
+function extApiFor(ses: Electron.Session): ElectronChromeExtensions {
+  let x = extSessions.get(ses)
+  if (!x) {
+    x = new ElectronChromeExtensions({
+      session: ses,
+      // An extension asking for a tab or window (changelog, checkout) opens in the browser; GuiseDesk has no tabs.
+      createTab: async (d) => {
+        if (d.url) void shell.openExternal(String(d.url))
+        throw new Error('tabs are not supported')
+      },
+      createWindow: async (d) => {
+        const u = Array.isArray(d.url) ? d.url[0] : d.url
+        if (u) void shell.openExternal(String(u))
+        throw new Error('windows are not supported')
+      }
+    })
+    extSessions.set(ses, x)
+  }
+  return x
+}
+/** Loads the account's turned-on extensions into its session (downloads on first use); unloads the ones turned off. */
+async function applyExtensions(a: Account, wc: Electron.WebContents, win?: Electron.BaseWindow): Promise<boolean> {
+  const want = enabledFor(a)
+  const ses = wc.session
+  const sx = ses.extensions
+  if (!want.length && !sx.getAllExtensions().length) return false
+  const api = extApiFor(ses)
+  if (win) api.addTab(wc, win)
+  let changed = false
+  for (const e of sx.getAllExtensions()) if (KNOWN_EXTENSIONS.some((k) => k.id === e.id) && !want.includes(e.id)) { sx.removeExtension(e.id); changed = true }
+  for (const id of want) {
+    if (sx.getExtension(id)) continue
+    try {
+      await installExtension(id, { session: ses, extensionsPath: extensionsDir(dir), loadExtensionOptions: { allowFileAccess: false } })
+      extErrors.delete(a.id)
+      changed = true
+    } catch (err) {
+      console.error('[guisedesk] extension install failed', id, err)
+      extErrors.set(a.id, String((err as Error)?.message ?? err))
+      onExtChange()
+    }
+  }
+  return changed
+}
 function hookDownloads(ses: Electron.Session): void {
   if (hookedSessions.has(ses)) return
   hookedSessions.add(ses)
@@ -408,7 +461,11 @@ function viewFor(a: Account): WebContentsView {
     // Saved zoom (D32): applied now and again after each load (a new origin starts at 100%).
     v.webContents.setZoomLevel(a.zoom ?? 0)
     v.webContents.on('dom-ready', () => v!.webContents.setZoomLevel(owner.get(v!.webContents.id)?.zoom ?? 0))
-    v.webContents.loadURL(preset?.startUrl ?? a.custom?.url ?? 'about:blank')
+    // Extensions (D49) must be loaded before the page so their content scripts run on it.
+    const wc = v.webContents
+    const start = preset?.startUrl ?? a.custom?.url ?? 'about:blank'
+    if (enabledFor(a).length) void applyExtensions(a, wc, mainWin).finally(() => !wc.isDestroyed() && wc.loadURL(start))
+    else wc.loadURL(start)
     views.set(a.id, v)
   }
   return v
@@ -492,6 +549,7 @@ function setDialog(win: BrowserWindow, open: boolean): void {
   else attach(win, attached)
 }
 
+let mainWin: BrowserWindow | undefined
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1240,
@@ -511,6 +569,7 @@ function createWindow(): BrowserWindow {
       devTools
     }
   })
+  mainWin = win
   // Dev-only: GUISEDESK_SHOT_DIALOG=add opens the Add account dialog, =reset the reset confirm screen, for the screenshot.
   // =settings opens Settings with the sheet of account GUISEDESK_SHOT_SHEET.
   const dialogQuery =
@@ -568,7 +627,8 @@ function createWindow(): BrowserWindow {
   // Custom icons are cached files; the renderer gets them as data URLs.
   const snapshot = () => ({
     accounts: accounts.map((a) => {
-      const row = keeperDown.has(a.id) ? { ...a, keeperUnavailable: true } : a
+      const row0 = keeperDown.has(a.id) ? { ...a, keeperUnavailable: true } : a
+      const row = extErrors.has(a.id) ? { ...row0, extError: extErrors.get(a.id) } : row0
       return a.custom ? { ...row, custom: { ...a.custom, icon: readIcon(dir, a.custom.icon) } } : row
     }),
     selectedId,
@@ -1030,6 +1090,22 @@ function createWindow(): BrowserWindow {
     const held = owner.get(v?.webContents.id ?? -1)
     if (held) held.blurParts = accounts.find((a) => a.id === id)?.blurParts
     if (v && !v.webContents.isDestroyed()) v.webContents.send('blur:set', blurState(accounts.find((a) => a.id === id)))
+    return snapshot()
+  })
+  // Chrome extension switch (D49): saved, then loaded or unloaded in the live session and WhatsApp reloads.
+  onExtChange = () => { if (!win.isDestroyed() && isUnlocked()) win.webContents.send('accounts:zoom', snapshot()) }
+  gipc.handle('accounts:extension', async (_e: unknown, id: string, extId: string, on: boolean) => {
+    const a0 = accounts.find((a) => a.id === id)
+    if (!a0 || typeof extId !== 'string' || !isKnownFor(extId, a0.serviceId)) return snapshot()
+    accounts = orderedAccounts(setExtensions(dir, id, toggled(a0.extensions, extId, !!on)))
+    const v = views.get(id)
+    const held = owner.get(v?.webContents.id ?? -1)
+    const a = accounts.find((x) => x.id === id)!
+    if (held) held.extensions = a.extensions
+    if (v && !v.webContents.isDestroyed()) {
+      await applyExtensions(held ?? a, v.webContents, win)
+      v.webContents.reload()
+    }
     return snapshot()
   })
   gipc.handle('accounts:keepdeleted', (_e: unknown, id: string, on: boolean) => {
