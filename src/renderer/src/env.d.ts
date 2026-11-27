@@ -77,6 +77,22 @@ interface BackupManifest {
   bytes: number
 }
 
+/** One stored notification (D64). Locked items have a generic title and no body. */
+interface InboxItem {
+  id: string
+  accountId: string
+  title: string
+  body: string
+  time: number
+  read: boolean
+}
+
+interface InboxSnapshot {
+  items: InboxItem[]
+  /** Unread items excluding muted accounts. */
+  unread: number
+}
+
 interface Snapshot {
   accounts: AccountRow[]
   selectedId?: string
@@ -139,6 +155,12 @@ interface Window {
     state(): Promise<Snapshot>
     unread(): Promise<Record<string, number>>
     onUnread(cb: (counts: Record<string, number>) => void): void
+    /** Notifications inbox (D64): newest first, kept in main; muted accounts are kept but not counted. */
+    inbox(): Promise<InboxSnapshot>
+    inboxRead(id: string): Promise<InboxSnapshot>
+    inboxReadAll(): Promise<InboxSnapshot>
+    inboxClear(): Promise<InboxSnapshot>
+    onInbox(cb: (s: InboxSnapshot) => void): void
     select(id: string): void
     sleep(): Promise<Record<string, { minutes: number; waking: boolean }>>
     onSleep(cb: (s: Record<string, { minutes: number; waking: boolean }>) => void): void

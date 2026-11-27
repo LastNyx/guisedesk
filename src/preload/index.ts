@@ -135,6 +135,11 @@ if (service) {
   unread: () => ipcRenderer.invoke('unread:get'),
   onUnread: (cb: (counts: Record<string, number>) => void) =>
     ipcRenderer.on('unread:update', (_e, counts) => cb(counts)),
+  inbox: () => ipcRenderer.invoke('inbox:get'),
+  inboxRead: (id: string) => ipcRenderer.invoke('inbox:read', id),
+  inboxReadAll: () => ipcRenderer.invoke('inbox:read-all'),
+  inboxClear: () => ipcRenderer.invoke('inbox:clear'),
+  onInbox: (cb: (s: unknown) => void) => ipcRenderer.on('inbox:update', (_e, s) => cb(s)),
   sleep: () => ipcRenderer.invoke('sleep:get'),
   onSleep: (cb: (s: unknown) => void) => ipcRenderer.on('sleep:update', (_e, s) => cb(s)),
   setSidebar: (collapsed: boolean) => ipcRenderer.send('sidebar:set', collapsed),

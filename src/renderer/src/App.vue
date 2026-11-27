@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AddAccount from './AddAccount.vue'
 import AccountSheet from './AccountSheet.vue'
 import AsleepPanel from './AsleepPanel.vue'
+import Inbox from './Inbox.vue'
 import LinkChooser from './LinkChooser.vue'
 import LockScreen from './LockScreen.vue'
 import QuickSwitcher from './QuickSwitcher.vue'
@@ -43,6 +44,9 @@ const ready = ref(false)
 // Forgot on the lock screen leads to the reset confirm screen.
 const resetting = ref(false)
 // Update status from main (D29); the sidebar pill and Settings > General show it. The pill opens General.
+// Notifications inbox (D64): the sidebar bell's unread count and the dialog's items.
+const inbox = ref<InboxSnapshot>({ items: [], unread: 0 })
+const inboxOpen = ref(false)
 const update = ref<UpdateInfo>({ state: 'checking' })
 // Lock countdown (D57): main pushes the time left under the active rule every few seconds; null = no chip.
 const lockChip = ref<{ ms: number; rule: string } | null>(null)
@@ -71,6 +75,8 @@ async function loadAccounts() {
   sleep.value = await window.guisedesk.sleep()
   update.value = await window.guisedesk.updateState()
   lockChip.value = (await window.guisedesk.lockCountdown?.()) ?? null
+  const box = await window.guisedesk.inbox?.()
+  if (box) inbox.value = box
   const b = await window.guisedesk.blockState?.()
   if (b) block.value = b
 }
@@ -88,13 +94,15 @@ function wipe() {
   sheetId.value = undefined
   switcherOpen.value = false
   helpOpen.value = false
+  inbox.value = { items: [], unread: 0 }
+  inboxOpen.value = false
   lockChip.value = null
   split.value = undefined
 }
 
 // Any layer that must have the service view off the window (D59): Settings, Add account, the link chooser, the dialogs.
 function overlayOpen(): boolean {
-  return settingsOpen.value || adding.value || !!choosing.value || switcherOpen.value || helpOpen.value
+  return settingsOpen.value || adding.value || !!choosing.value || switcherOpen.value || helpOpen.value || inboxOpen.value
 }
 function syncDialog() {
   window.guisedesk.dialog(overlayOpen())
@@ -113,6 +121,7 @@ async function apply(info: LockInfo) {
 function onEsc(e: KeyboardEvent) {
   if (e.key !== 'Escape' || lockInfo.value.state !== 'unlocked') return
   if (helpOpen.value) closeHelp()
+  else if (inboxOpen.value) closeInbox()
   else if (switcherOpen.value) closeSwitcher()
   else if (choosing.value) chosen(null)
   else if (adding.value) closeAdd()
@@ -162,6 +171,7 @@ onMounted(async () => {
   })
   window.guisedesk.onSplit?.((s) => (split.value = s))
   window.guisedesk.onUnread((c) => (counts.value = { ...c }))
+  window.guisedesk.onInbox?.((s) => (inbox.value = s))
   window.guisedesk.onSelected((id) => {
     selectedId.value = id
     closeSettings()
@@ -337,6 +347,36 @@ function closeHelp() {
   syncDialog()
 }
 
+// Notifications inbox (D64): the sidebar bell opens it; an item marks itself read and selects that account.
+function openInbox() {
+  if (lockInfo.value.state !== 'unlocked') return
+  inboxOpen.value = true
+  syncDialog()
+}
+
+function closeInbox() {
+  if (!inboxOpen.value) return
+  inboxOpen.value = false
+  syncDialog()
+}
+
+async function pickInbox(accountId: string, itemId: string) {
+  const box = await window.guisedesk.inboxRead(itemId)
+  if (box) inbox.value = box
+  closeInbox()
+  if (accounts.value.some((a) => a.id === accountId)) select(accountId)
+}
+
+async function readAllInbox() {
+  const box = await window.guisedesk.inboxReadAll()
+  if (box) inbox.value = box
+}
+
+async function clearInbox() {
+  const box = await window.guisedesk.inboxClear()
+  if (box) inbox.value = box
+}
+
 function openSettings() {
   if (settingsOpen.value) return
   settingsOpen.value = true
@@ -425,7 +465,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
   <LockScreen v-else-if="lockInfo.state === 'locked'" :kind="lockInfo.kind ?? 'pin'" :pin-length="lockInfo.pinLength" :wait-until="lockInfo.waitUntil" @forgot="resetting = true" />
   <div v-else class="shell">
     <div v-if="sideHidden" class="sidestrip"><button class="showside" title="Show sidebar (Ctrl+B)" aria-label="Show sidebar" @click="hideSidebar(false)"><svg class="i" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg></button></div>
-    <Sidebar v-if="!sideHidden" :width="sideWidthPx" @hide="hideSidebar(true)" @resize="resizeSidebar" :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" :update="update.state === 'available'" @update="openUpdates" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
+    <Sidebar v-if="!sideHidden" :width="sideWidthPx" @hide="hideSidebar(true)" @resize="resizeSidebar" :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" :update="update.state === 'available'" :inbox-unread="inbox.unread" @inbox="openInbox" @update="openUpdates" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
     <main class="main">
       <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" :lock="lockChip" :proxy="current.proxy" :split="!!split" @lock-menu="openLockMenu" @proxy-menu="openProxyMenu(current!.id)" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" @extensions="extensionMenu(current!.id)" @split-menu="openSplitMenu" @close-split="closeSplit" />
       <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" :update="update" :tab="settingsTab" @check="checkUpdate" @apply="applyUpdate" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" @shortcuts="openHelp" />
@@ -450,6 +490,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
     <LinkChooser v-if="choosing" :url="choosing.url" :candidates="choosing.candidates" @choose="chosen" />
     <AddAccount v-if="adding" :accounts="accounts" :server-error="addError" @add="add" @cancel="closeAdd" />
     <QuickSwitcher v-if="switcherOpen" :accounts="shown" @choose="pickSwitcher" @close="closeSwitcher" />
+    <Inbox v-if="inboxOpen" :items="inbox.items" :accounts="shown" @select="pickInbox" @read-all="readAllInbox" @clear="clearInbox" @close="closeInbox" />
     <ShortcutHelp v-if="helpOpen" @close="closeHelp" />
   </div>
 </template>

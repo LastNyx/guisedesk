@@ -14,8 +14,8 @@ interface Acc {
   id: string; serviceId: string; label: string; colour: string; order: number; muted?: boolean
   custom?: { name: string; url: string; icon?: string }
 }
-const props = defineProps<{ accounts: Acc[]; selectedId?: string; counts?: Record<string, number>; asleep?: string[]; collapsed?: boolean; update?: boolean; width?: number }>()
-const emit = defineEmits<{ select: [id: string]; add: []; settings: []; account: [id: string]; mute: [id: string, muted: boolean]; sleep: [id: string]; toggle: []; update: []; reorder: [ids: string[]] ; hide: []; resize: [width: number] }>()
+const props = defineProps<{ accounts: Acc[]; selectedId?: string; counts?: Record<string, number>; asleep?: string[]; collapsed?: boolean; update?: boolean; width?: number; inboxUnread?: number }>()
+const emit = defineEmits<{ select: [id: string]; add: []; settings: []; account: [id: string]; mute: [id: string, muted: boolean]; sleep: [id: string]; toggle: []; update: []; reorder: [ids: string[]] ; hide: []; resize: [width: number]; inbox: [] }>()
 
 const groups = computed(() => sidebarGroups(props.accounts))
 
@@ -110,7 +110,15 @@ onMounted(() =>
       </div>
     </div>
     <div class="grow"></div>
-    <div class="foot"><button class="ib tgl" :title="collapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'" :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'" @click="emit('toggle')"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg><i v-if="update && collapsed" class="upd dot" title="Update available" @click.stop="emit('update')"></i></button><button class="ib hide" title="Hide sidebar (Ctrl+B brings it back)" aria-label="Hide sidebar" @click="emit('hide')"><svg class="i" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg></button><span v-if="!collapsed" class="ver">GuiseDesk v{{ version }}</span><button v-if="update && !collapsed" class="upd" title="Update available" @click="emit('update')">Update</button></div>
+    <div class="foot"><button class="ib tgl" :title="collapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'" :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'" @click="emit('toggle')"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg><i v-if="update && collapsed" class="upd dot" title="Update available" @click.stop="emit('update')"></i></button><button class="ib bell" :title="inboxUnread ? inboxUnread + ' unread notifications' : 'Notifications'" aria-label="Notifications" @click="emit('inbox')"><svg class="i" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></svg><span v-if="(inboxUnread ?? 0) > 0" class="badge">{{ formatCount(inboxUnread!) }}</span></button><button class="ib hide" title="Hide sidebar (Ctrl+B brings it back)" aria-label="Hide sidebar" @click="emit('hide')"><svg class="i" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg></button><span v-if="!collapsed" class="ver">GuiseDesk v{{ version }}</span><button v-if="update && !collapsed" class="upd" title="Update available" @click="emit('update')">Update</button></div>
     <div v-if="!collapsed" class="grip" title="Drag to resize" @pointerdown.prevent="startDrag"></div>
   </aside>
 </template>
+
+<style scoped>
+.foot { gap: 8px; }
+.foot .ver { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foot .bell { position: relative; flex: none; }
+.foot .bell .badge { position: absolute; right: -4px; top: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 9.5px; font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 0 0 2px var(--side); }
+.side.mini .foot .bell .badge { right: -5px; top: -5px; }
+</style>

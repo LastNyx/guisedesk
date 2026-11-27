@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -50,6 +51,8 @@ import { clampSide, clampSplit, isSidebarShortcut, panelBounds as layoutBounds, 
 import { applyPendingRestore } from './backup'
 import { backupFileName } from './backuprules'
 import { runBackupWorker } from './backupengine'
+import { addInbox, inboxItem, markAllRead, markRead, unreadCount, type InboxItem } from './inbox'
+import { loadInbox, saveInbox } from './inboxstore'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
 // so sessions and partitions still land in the chosen dir. The name is what notifications and the tray show.
@@ -145,6 +148,9 @@ let openSwitcher: () => void = () => {}
 // F1 (D60): ask the renderer to show the shortcut cheat sheet.
 let openHelp: () => void = () => {}
 const live = new Set<Notification>() // keep references so click handlers survive GC
+// Notifications inbox (D64): kept in memory and inbox.json; muted items stay but are not counted.
+let inbox: InboxItem[] = []
+let onInbox: () => void = () => {}
 
 /** One request to the site for its favicon (Custom URL accounts only, once per host). */
 const fetchSite: Fetcher = async (url) => {
@@ -693,24 +699,30 @@ function viewFor(a: Account): WebContentsView {
 
 /** Page notification (D4): decide, then show a native one; click shows the window and selects the account. */
 function notify(win: BrowserWindow, a: Account, p: { title?: string; body?: string; icon?: string }, onClick: () => void): void {
-  const d = decideNotification(
-    {
-      accountId: a.id,
-      serviceName: presetFor(a.serviceId)?.name ?? a.custom?.name ?? a.serviceId,
-      label: a.label,
-      title: String(p.title ?? '').slice(0, 200),
-      body: String(p.body ?? '').slice(0, 1000),
-      icon: p.icon
-    },
-    {
-      muted: a.muted,
-      dnd,
-      quiet: quietOutsideWorkHours(quietWork, quietSchedule, new Date()),
-      asleep: hib.isAsleep(a.id),
-      locked: !isUnlocked(),
-      disabled: disabled.has(a.serviceId)
-    }
-  )
+  const event = {
+    accountId: a.id,
+    serviceName: presetFor(a.serviceId)?.name ?? a.custom?.name ?? a.serviceId,
+    label: a.label,
+    title: String(p.title ?? '').slice(0, 200),
+    body: String(p.body ?? '').slice(0, 1000),
+    icon: p.icon
+  }
+  const locked = !isUnlocked()
+  const d = decideNotification(event, {
+    muted: a.muted,
+    dnd,
+    quiet: quietOutsideWorkHours(quietWork, quietSchedule, new Date()),
+    asleep: hib.isAsleep(a.id),
+    locked,
+    disabled: disabled.has(a.serviceId)
+  })
+  // Every notification is kept in the inbox, even when the native one is dropped (muted, DND, asleep).
+  // While locked only the account id and a generic title are stored; the sender and the body never reach disk.
+  if (!disabled.has(a.serviceId)) {
+    inbox = addInbox(inbox, inboxItem(event, { id: randomUUID(), time: Date.now(), locked }))
+    saveInbox(dir, inbox)
+    onInbox()
+  }
   if (d.action === 'drop' || !Notification.isSupported()) return
   // Linux has no subtitle: the service line goes under the body (frame 7).
   const n = new Notification({ title: d.title, body: [d.body, d.subtitle].filter(Boolean).join('\n') })
@@ -901,6 +913,7 @@ function createWindow(): BrowserWindow {
     } else setSidebar(!sidebarCollapsed)
   }
   let accounts = orderedAccounts(loadAccounts(dir))
+  inbox = loadInbox(dir)
   const enabled = () => accounts.filter((a) => !disabled.has(a.serviceId))
   let selectedId = loadSelected(dir)
   if (!enabled().some((a) => a.id === selectedId)) selectedId = enabled()[0]?.id
@@ -1000,6 +1013,15 @@ function createWindow(): BrowserWindow {
     return true
   }
   const fromApp = (e: { sender: { id: number } }) => e.sender.id === win.webContents.id
+  // Inbox (D64): the renderer gets the items and the unread count (muted accounts are kept but not counted).
+  const inboxView = () => {
+    const muted = new Set(accounts.filter((a) => a.muted).map((a) => a.id))
+    return { items: inbox, unread: unreadCount(inbox, muted) }
+  }
+  const pushInbox = () => {
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('inbox:update', inboxView())
+  }
+  onInbox = pushInbox
   ipcMain.removeHandler('lock:state')
   ipcMain.handle('lock:state', (e) => (fromApp(e) ? lock.info() : { state: 'locked' }))
   ipcMain.removeHandler('lock:setup')
@@ -1350,6 +1372,8 @@ function createWindow(): BrowserWindow {
     if ('error' in r) return r
     accounts = []
     selectedId = undefined
+    inbox = []
+    saveInbox(dir, inbox)
     for (const k of Object.keys(counts)) delete counts[k]
     for (const k of Object.keys(sleepState)) delete sleepState[k]
     lock.reset()
@@ -1430,6 +1454,30 @@ function createWindow(): BrowserWindow {
     if (id) counts[id] = Number(n) || 0
   }
   gipc.handle('unread:get', () => ({ ...counts }))
+  // Inbox (D64): the dialog reads, marks one item read, marks all read, or clears. Every change is saved and pushed.
+  gipc.handle('inbox:get', (e: { sender: { id: number } }) => (fromApp(e) ? inboxView() : undefined))
+  gipc.handle('inbox:read', (e: { sender: { id: number } }, id: unknown) => {
+    if (!fromApp(e) || typeof id !== 'string') return undefined
+    inbox = markRead(inbox, id)
+    saveInbox(dir, inbox)
+    pushInbox()
+    return inboxView()
+  })
+  gipc.handle('inbox:read-all', (e: { sender: { id: number } }) => {
+    if (!fromApp(e)) return undefined
+    inbox = markAllRead(inbox)
+    saveInbox(dir, inbox)
+    pushInbox()
+    return inboxView()
+  })
+  gipc.handle('inbox:clear', (e: { sender: { id: number } }) => {
+    if (!fromApp(e)) return undefined
+    inbox = []
+    saveInbox(dir, inbox)
+    appendEvent(dir, 'notification inbox cleared')
+    pushInbox()
+    return inboxView()
+  })
   push()
   // Selected account gone or its service switched off: show the first account still in the sidebar, or none.
   const reconcile = () => {
@@ -1517,6 +1565,10 @@ function createWindow(): BrowserWindow {
     }
     accounts = orderedAccounts(loadAccounts(dir))
     if (removedKey && !accounts.some((a) => partitionKey(a) === removedKey)) saveProxyAuth(dir, removedKey, undefined)
+    // The removed account's inbox rows go with it (D64).
+    inbox = inbox.filter((i) => accounts.some((a) => a.id === i.accountId))
+    saveInbox(dir, inbox)
+    onInbox()
     delete counts[id]
     delete sleepState[id]
     blockState.forget(id)
@@ -1738,6 +1790,8 @@ function createWindow(): BrowserWindow {
     // The notification path reads the Account captured when the view was built: keep it current.
     const held = owner.get(views.get(id)?.webContents.id ?? -1)
     if (held) held.muted = !!muted
+    // A muted account's inbox items stay, but no longer count as unread (D64).
+    onInbox()
     return snapshot()
   })
   gipc.handle('accounts:blur', (_e: unknown, id: string, on: boolean) => {
