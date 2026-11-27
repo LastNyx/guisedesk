@@ -19,8 +19,8 @@ import { buildInWorker, loadEngineBytes, PRELOAD_PATH } from './adengine'
 import { createBlockState, shieldMenuItems } from './blockstate'
 import { createDispatcher } from './webrequest'
 import { ElectronChromeExtensions } from 'electron-chrome-extensions'
-import { installExtension } from 'electron-chrome-web-store'
-import { enabledFor, extensionsDir, isKnownFor, KNOWN_EXTENSIONS, toggled } from './extensions'
+import { downloadExtension } from 'electron-chrome-web-store'
+import { createExtensionFetcher, enabledFor, extensionsDir, isKnownFor, KNOWN_EXTENSIONS, toggled } from './extensions'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
@@ -373,6 +373,10 @@ let onDownloadDone: (ok: boolean, file: string) => void = () => {}
 // then installExtension downloads from the Chrome Web Store into <data>/extensions and loads it into that session.
 const extSessions = new WeakMap<Electron.Session, ElectronChromeExtensions>()
 const extErrors = new Map<string, string>()
+// One shared download per extension (concurrent installs collided on the same folder: ENOTEMPTY).
+const fetchExtension = createExtensionFetcher(extensionsDir(dir), downloadExtension)
+// One load per session and extension at a time.
+const extLoading = new WeakMap<Electron.Session, Map<string, Promise<unknown>>>()
 let onExtChange: () => void = () => {}
 function extApiFor(ses: Electron.Session): ElectronChromeExtensions {
   let x = extSessions.get(ses)
@@ -407,8 +411,16 @@ async function applyExtensions(a: Account, wc: Electron.WebContents, win?: Elect
   for (const id of want) {
     if (sx.getExtension(id)) continue
     try {
-      await installExtension(id, { session: ses, extensionsPath: extensionsDir(dir), loadExtensionOptions: { allowFileAccess: false } })
+      let loads = extLoading.get(ses)
+      if (!loads) extLoading.set(ses, (loads = new Map()))
+      let p = loads.get(id)
+      if (!p) {
+        p = fetchExtension(id).then((path) => (sx.getExtension(id) ? undefined : sx.loadExtension(path, { allowFileAccess: false }))).finally(() => loads!.delete(id))
+        loads.set(id, p)
+      }
+      await p
       extErrors.delete(a.id)
+      onExtChange()
       changed = true
     } catch (err) {
       console.error('[guisedesk] extension install failed', id, err)
