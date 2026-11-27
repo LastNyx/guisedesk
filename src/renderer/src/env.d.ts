@@ -49,6 +49,13 @@ interface ExtensionRow {
   id: string
   name: string
   version: string
+  /** Last update or install date (YYYY-MM-DD), shown in Settings > Extensions (D56). */
+  updated?: string
+}
+
+interface ExtensionUpdateResult {
+  checked: number
+  updated: { id: string; version: string }[]
 }
 
 interface Snapshot {
@@ -143,6 +150,8 @@ interface Window {
     setExtension(id: string, extId: string, on: boolean): Promise<Snapshot>
     /** Installed Chrome extensions (D49), install from a store link, remove (off for every account). */
     extensions(): Promise<ExtensionRow[]>
+    /** Check the Chrome Web Store for newer copies and load them (D56). */
+    checkExtensionUpdates(): Promise<ExtensionUpdateResult>
     installExtension(link: string): Promise<{ ok: true; list: ExtensionRow[] } | { error: string }>
     removeExtension(id: string): Promise<ExtensionRow[]>
     /** Puzzle button: main shows the extensions menu for this account. */

@@ -152,6 +152,7 @@ if (service) {
   setKeepDeleted: (id: string, on: boolean) => ipcRenderer.invoke('accounts:keepdeleted', id, on),
   setExtension: (id: string, extId: string, on: boolean) => ipcRenderer.invoke('accounts:extension', id, extId, on),
   extensions: () => ipcRenderer.invoke('ext:list'),
+  checkExtensionUpdates: () => ipcRenderer.invoke('ext:update-check'),
   installExtension: (link: string) => ipcRenderer.invoke('ext:install', link),
   removeExtension: (id: string) => ipcRenderer.invoke('ext:remove', id),
   extensionMenu: (id: string) => ipcRenderer.send('ext:menu', id),

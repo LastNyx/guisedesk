@@ -20,7 +20,7 @@ import { createBlockState, shieldMenuItems } from './blockstate'
 import { createDispatcher } from './webrequest'
 import { ElectronChromeExtensions } from 'electron-chrome-extensions'
 import { downloadExtension } from 'electron-chrome-web-store'
-import { actionClick, createExtensionFetcher, enabledFor, extensionsDir, listInstalled, parseExtensionId, readManifest, toggled } from './extensions'
+import { actionClick, checkExtensionUpdates, createExtensionFetcher, enabledFor, extensionsDir, listInstalled, loadUpdateTimes, parseExtensionId, readManifest, saveUpdateTimes, toggled, type ExtensionUpdate } from './extensions'
 import { appendEvent, LOGIN_COOKIES, lostLogins } from './events'
 import { parseWaPage, readDirSafe, storeHasData, waStorePath, whatsappLoggedIn, WA_PAGE_SCRIPT, type WaPage } from './whatsapp'
 import { writeAtomic } from './atomic'
@@ -379,6 +379,8 @@ let onDownloadDone: (ok: boolean, file: string) => void = () => {}
 // Chrome extensions per account (D49): electron-chrome-extensions once per session (chrome.tabs/windows APIs),
 // then installExtension downloads from the Chrome Web Store into <data>/extensions and loads it into that session.
 const extSessions = new WeakMap<Electron.Session, ElectronChromeExtensions>()
+// Sessions that have an extension API: an update reloads the extension in each of them (D56).
+const extSessionSet = new Set<Electron.Session>()
 const extErrors = new Map<string, string>()
 const extTabs = new WeakSet<Electron.WebContents>()
 // One shared download per extension (concurrent installs collided on the same folder: ENOTEMPTY).
@@ -403,6 +405,7 @@ function extApiFor(ses: Electron.Session): ElectronChromeExtensions {
       }
     })
     extSessions.set(ses, x)
+    extSessionSet.add(ses)
   }
   return x
 }
@@ -438,6 +441,72 @@ async function applyExtensions(a: Account, wc: Electron.WebContents, win?: Elect
   onExtChange()
   return changed
 }
+
+const day = () => new Date().toISOString().slice(0, 10)
+export interface ExtensionUpdateResult {
+  checked: number
+  updated: { id: string; version: string }[]
+}
+/**
+ * Auto-update (D56): asks the Chrome Web Store for each installed extension's newest version, downloads the newer
+ * ones through the shared fetcher, reloads them in every session that has them on, then drops the old folder. One
+ * run at a time: the weekly timer and the Settings button share it.
+ */
+async function runExtensionUpdates(): Promise<ExtensionUpdateResult> {
+  const installed = listInstalled(extensionsDir(dir))
+  let found: ExtensionUpdate[] = []
+  try {
+    found = await checkExtensionUpdates({
+      installed,
+      chromeVersion: process.versions.chrome,
+      fetchText: async (url) => {
+        const r = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.text()
+      }
+    })
+  } catch (err) {
+    appendEvent(dir, `extension update check failed ${String((err as Error)?.message ?? err)}`)
+    return { checked: installed.length, updated: [] }
+  }
+  const done: ExtensionUpdate[] = []
+  for (const u of found) {
+    const old = installed.find((x) => x.id === u.id)
+    try {
+      const path = await fetchExtension(u.id, true)
+      for (const ses of extSessionSet) {
+        const sx = ses.extensions
+        if (!sx.getExtension(u.id)) continue
+        try {
+          sx.removeExtension(u.id)
+          await sx.loadExtension(path, { allowFileAccess: false })
+        } catch (err) {
+          console.error('[guisedesk] extension reload failed', u.id, err)
+        }
+      }
+      // The new copy is loaded everywhere that wanted it: the old version folder can go.
+      if (old && old.path !== path) rmSync(old.path, { recursive: true, force: true })
+      done.push(u)
+      appendEvent(dir, `extension updated ${u.id} ${u.current} -> ${u.version}`)
+    } catch (err) {
+      console.error('[guisedesk] extension update failed', u.id, err)
+      appendEvent(dir, `extension update failed ${u.id} ${String((err as Error)?.message ?? err)}`)
+    }
+  }
+  if (done.length) {
+    const times = loadUpdateTimes(dir)
+    for (const u of done) times[u.id] = day()
+    saveUpdateTimes(dir, times)
+    onExtChange()
+  }
+  return { checked: installed.length, updated: done.map(({ id, version }) => ({ id, version })) }
+}
+let extUpdateJob: Promise<ExtensionUpdateResult> | undefined
+function updateExtensions(): Promise<ExtensionUpdateResult> {
+  if (!extUpdateJob) extUpdateJob = runExtensionUpdates().finally(() => { extUpdateJob = undefined })
+  return extUpdateJob
+}
+
 interface ExtensionClickApi {
   api?: { browserAction?: { activateClick(d: object): void } }
   ctx?: {
@@ -1195,8 +1264,15 @@ function createWindow(): BrowserWindow {
   })
   // Chrome extension switch (D49): saved, then loaded or unloaded in the live session and WhatsApp reloads.
   onExtChange = () => { if (!win.isDestroyed() && isUnlocked()) win.webContents.send('accounts:zoom', snapshot()) }
-  const extList = () => listInstalled(extensionsDir(dir)).map(({ id, name, version }) => ({ id, name, version }))
+  const extList = () => {
+    const times = loadUpdateTimes(dir)
+    return listInstalled(extensionsDir(dir)).map(({ id, name, version }) => ({ id, name, version, ...(times[id] ? { updated: times[id] } : {}) }))
+  }
   gipc.handle('ext:list', (e: { sender: { id: number } }) => (fromApp(e) ? extList() : []))
+  // Weekly auto-update (D56) plus the Settings > Extensions button. The first check runs shortly after start.
+  setTimeout(() => void updateExtensions(), 60_000).unref()
+  setInterval(() => void updateExtensions(), 7 * 24 * 3600_000).unref()
+  gipc.handle('ext:update-check', (e: { sender: { id: number } }) => (fromApp(e) ? updateExtensions() : { checked: 0, updated: [] }))
   // Add from a Chrome Web Store link (or id): downloaded once, then off for every account until turned on.
   gipc.handle('ext:install', async (e: { sender: { id: number } }, link: string) => {
     if (!fromApp(e)) return { error: 'Refused' }
@@ -1204,6 +1280,9 @@ function createWindow(): BrowserWindow {
     if (!id) return { error: 'Paste a Chrome Web Store link, like https://chromewebstore.google.com/detail/name/<id>' }
     try {
       await fetchExtension(id)
+      const times = loadUpdateTimes(dir)
+      times[id] = day()
+      saveUpdateTimes(dir, times)
       appendEvent(dir, `extension installed ${id}`)
       return { ok: true, list: extList() }
     } catch (err) {

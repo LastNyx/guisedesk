@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
-import { actionClick, compareVersions, createExtensionFetcher, enabledFor, listInstalled, parseExtensionId, readManifest, readyCopy, toggled } from '../src/main/extensions'
+import { actionClick, checkExtensionUpdates, compareVersions, createExtensionFetcher, enabledFor, listInstalled, loadUpdateTimes, parseExtensionId, parseUpdateVersion, readManifest, readyCopy, saveUpdateTimes, toggled, updateCheckUrl } from '../src/main/extensions'
 import { appendEvent, lostLogins } from '../src/main/events'
 import SettingsExtensions from '../src/renderer/src/SettingsExtensions.vue'
 
@@ -57,6 +57,77 @@ describe('toolbar click target (D54)', () => {
   })
 })
 
+describe('extension auto-update (D56)', () => {
+  const A = 'a'.repeat(32)
+  const B = 'b'.repeat(32)
+  const row = (id: string, name: string, version: string) => ({ id, name, version, path: `/x/${id}/${version}_0` })
+  const unpack = (root: string, id: string, name: string) => {
+    const d = join(root, id, name)
+    mkdirSync(d, { recursive: true })
+    writeFileSync(join(d, 'manifest.json'), '{}')
+    return d
+  }
+
+  it('builds the Chrome Web Store update-service URL', () => {
+    expect(updateCheckUrl(WAWP, '146.0.0.0')).toBe(
+      'https://clients2.google.com/service/update2/crx?response=updatecheck&prodversion=146.0.0.0&acceptformat=crx2,crx3&x=id%3D' + WAWP + '%26uc'
+    )
+  })
+
+  it('parses the version from update-check XML and rejects bad answers', () => {
+    expect(parseUpdateVersion('<gupdate><updatecheck status="ok" version="5.2.10"/></gupdate>')).toBe('5.2.10')
+    expect(parseUpdateVersion("<updatecheck version='1.2'/>")).toBe('1.2')
+    expect(parseUpdateVersion('<updatecheck status="noupdate"/>')).toBeNull()
+    expect(parseUpdateVersion('<updatecheck version="beta"/>')).toBeNull()
+    expect(parseUpdateVersion('')).toBeNull()
+  })
+
+  it('checks every installed extension and keeps only versions that are newer', async () => {
+    const installed = [row(A, 'A', '5.2.9'), row(B, 'B', '1.0')]
+    const urls: string[] = []
+    const got = await checkExtensionUpdates({
+      installed,
+      chromeVersion: '146',
+      fetchText: async (url) => {
+        urls.push(url)
+        return url.includes(A) ? '<updatecheck version="5.2.10"/>' : '<updatecheck version="1.0"/>'
+      }
+    })
+    expect(got).toEqual([{ id: A, current: '5.2.9', version: '5.2.10' }])
+    expect(urls).toHaveLength(2)
+  })
+
+  it('one failed answer does not hide another extension update', async () => {
+    const got = await checkExtensionUpdates({
+      installed: [row(A, 'A', '5.2.9'), row(B, 'B', '1.0')],
+      chromeVersion: '146',
+      fetchText: async (url) => {
+        if (url.includes(A)) throw new Error('offline')
+        return '<updatecheck version="1.1"/>'
+      }
+    })
+    expect(got).toEqual([{ id: B, current: '1.0', version: '1.1' }])
+  })
+
+  it('stores and reads the last update dates', () => {
+    const d = mkdtempSync(join(tmpdir(), 'gd-ext-'))
+    expect(loadUpdateTimes(d)).toEqual({})
+    saveUpdateTimes(d, { [A]: '2026-11-27' })
+    expect(loadUpdateTimes(d)).toEqual({ [A]: '2026-11-27' })
+  })
+
+  it('force downloads a new copy even when an old one is installed', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'gd-ext-'))
+    unpack(root, WAWP, '5.2.9_0')
+    const download = vi.fn(async (id: string, dir: string) => unpack(dir, id, '5.2.10_0'))
+    const fetch = createExtensionFetcher(root, download)
+    expect(await fetch(WAWP)).toBe(join(root, WAWP, '5.2.9_0'))
+    expect(download).not.toHaveBeenCalled()
+    expect(await fetch(WAWP, true)).toBe(join(root, WAWP, '5.2.10_0'))
+    expect(download).toHaveBeenCalledOnce()
+  })
+})
+
 describe('Settings > Extensions', () => {
   it('adds from a link, toggles per account and removes', async () => {
     const row = { id: WAWP, name: 'WA Web Plus', version: '5.2.9' }
@@ -84,6 +155,19 @@ describe('Settings > Extensions', () => {
     await flushPromises()
     expect(w.find(`[data-ext="${WAWP}"]`).exists()).toBe(false)
   })
+  it('shows the version with its updated date and checks for updates on demand', async () => {
+    const row = { id: WAWP, name: 'WA Web Plus', version: '5.2.10', updated: '2026-11-27' }
+    const check = vi.fn(async () => ({ checked: 1, updated: [{ id: WAWP, version: '5.2.10' }] }))
+    ;(window as unknown as { guisedesk: unknown }).guisedesk = { extensions: async () => [row], checkExtensionUpdates: check }
+    const w = mount(SettingsExtensions, { props: { accounts: [] } })
+    await flushPromises()
+    expect(w.find(`[data-ext="${WAWP}"] .updated`).text()).toBe('Updated 2026-11-27')
+    await w.find('.btn').trigger('click')
+    await flushPromises()
+    expect(check).toHaveBeenCalledOnce()
+    expect(w.text()).toContain('1 updated: WA Web Plus 5.2.10')
+  })
+
   it('a bad link shows the error from main', async () => {
     ;(window as unknown as { guisedesk: unknown }).guisedesk = {
       extensions: async () => [],

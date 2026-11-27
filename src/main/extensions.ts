@@ -3,6 +3,7 @@
 // Plain TS, no electron import.
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { writeAtomic } from './atomic'
 
 export interface InstalledExtension {
   id: string
@@ -43,6 +44,68 @@ export const extensionsDir = (dataDir: string) => join(dataDir, 'extensions')
 export function compareVersions(a: number[], b: number[]): number {
   for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) - (b[i] ?? 0)
   return 0
+}
+
+/** Chrome Web Store update service URL for one extension (D56). */
+export function updateCheckUrl(id: string, chromeVersion: string): string {
+  return `https://clients2.google.com/service/update2/crx?response=updatecheck&prodversion=${encodeURIComponent(chromeVersion)}&acceptformat=crx2,crx3&x=${encodeURIComponent(`id=${id}&uc`)}`
+}
+
+/** The version in an update-check XML response (`<updatecheck ... version="1.2.3">`), or null. */
+export function parseUpdateVersion(xml: string): string | null {
+  const m = /<updatecheck\b[^>]*\bversion\s*=\s*["']([^"']+)["']/i.exec(String(xml ?? ''))
+  return m && /^\d+(?:\.\d+)*$/.test(m[1]) ? m[1] : null
+}
+
+export interface ExtensionUpdate {
+  id: string
+  current: string
+  version: string
+}
+
+/** Newer versions among the update-service answers, compared numerically. */
+export function updatesFor(installed: InstalledExtension[], got: Record<string, string | null>): ExtensionUpdate[] {
+  const out: ExtensionUpdate[] = []
+  for (const x of installed) {
+    const v = got[x.id]
+    if (v && compareVersions(v.split('.').map(Number), x.version.split('.').map(Number)) > 0) out.push({ id: x.id, current: x.version, version: v })
+  }
+  return out
+}
+
+/** Checks every installed extension with the Chrome Web Store; the text fetcher is injected for tests. */
+export async function checkExtensionUpdates(o: {
+  installed: InstalledExtension[]
+  chromeVersion: string
+  fetchText: (url: string) => Promise<string>
+}): Promise<ExtensionUpdate[]> {
+  const got: Record<string, string | null> = {}
+  await Promise.all(
+    o.installed.map(async (x) => {
+      try {
+        got[x.id] = parseUpdateVersion(await o.fetchText(updateCheckUrl(x.id, o.chromeVersion)))
+      } catch {
+        got[x.id] = null
+      }
+    })
+  )
+  return updatesFor(o.installed, got)
+}
+
+const updateTimesFile = (dataDir: string) => join(dataDir, 'extension-updates.json')
+
+/** Per-extension last-update dates (YYYY-MM-DD) for Settings > Extensions. */
+export function loadUpdateTimes(dataDir: string): Record<string, string> {
+  try {
+    const v = JSON.parse(readFileSync(updateTimesFile(dataDir), 'utf8'))
+    return v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === 'string')) as Record<string, string> : {}
+  } catch {
+    return {}
+  }
+}
+
+export function saveUpdateTimes(dataDir: string, v: Record<string, string>): void {
+  writeAtomic(updateTimesFile(dataDir), JSON.stringify(v, null, 2))
 }
 
 /**
@@ -129,12 +192,13 @@ export function listInstalled(extDir: string): InstalledExtension[] {
 
 /**
  * One download per extension at a time, shared by every caller: concurrent callers wait for the same promise.
- * download(id, extDir) unpacks into <extDir>/<id>/<version>_0 and returns that path.
+ * download(id, extDir) unpacks into <extDir>/<id>/<version>_0 and returns that path. `force` skips the installed
+ * copy, for an update check that already knows a newer version exists (D56).
  */
 export function createExtensionFetcher(extDir: string, download: (id: string, dir: string) => Promise<string>) {
   const inFlight = new Map<string, Promise<string>>()
-  return (id: string): Promise<string> => {
-    const ready = inFlight.has(id) ? null : readyCopy(extDir, id)
+  return (id: string, force = false): Promise<string> => {
+    const ready = force || inFlight.has(id) ? null : readyCopy(extDir, id)
     if (ready) return Promise.resolve(ready)
     let p = inFlight.get(id)
     if (!p) {
