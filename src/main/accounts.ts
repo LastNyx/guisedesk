@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeAtomic, type Fs } from './atomic'
 import { PARTS, type Part } from '../preload/blur'
+import { clampSplit } from './layout'
 import { checkShare, validateNewAccount, type NewAccountInput } from './validate'
 
 export interface Account {
@@ -186,6 +187,27 @@ export function saveSidebarCollapsed(dir: string, sidebarCollapsed: boolean): vo
     /* first write */
   }
   writeAtomic(join(dir, 'settings.json'), JSON.stringify({ ...settings, sidebarCollapsed }, null, 2))
+}
+
+/** Split view (D62) in settings.json key split: the two account ids and the divider ratio. */
+export interface SplitState {
+  a: string
+  b: string
+  ratio: number
+}
+
+export function loadSplit(dir: string): SplitState | undefined {
+  try {
+    const v = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).split
+    if (!v || typeof v.a !== 'string' || typeof v.b !== 'string' || !v.a || !v.b || v.a === v.b) return undefined
+    return { a: v.a, b: v.b, ratio: clampSplit(v.ratio) }
+  } catch {
+    return undefined
+  }
+}
+
+export function saveSplit(dir: string, split: SplitState | undefined): void {
+  updateSettings(dir, { split })
 }
 
 /** Idle lock minutes (D15, D17) in settings.json key idleLock: 5, 10, 30 or 'manual'; 10 when missing or invalid. */

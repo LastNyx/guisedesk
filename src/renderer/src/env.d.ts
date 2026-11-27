@@ -82,6 +82,8 @@ interface Snapshot {
   sidebarCollapsed?: boolean
   sidebarHidden?: boolean
   sidebarWidth?: number
+  /** Split view (D62): the second account and the divider position. Missing means no split. */
+  split?: { b: string; ratio: number }
 }
 
 interface LockInfo {
@@ -146,6 +148,12 @@ interface Window {
     setSidebarHidden(hidden: boolean): void
     setSidebarWidth(width: number): void
     onSidebarLayout(cb: (l: { collapsed: boolean; hidden: boolean; width: number }) => void): void
+    /** Split view (D62): main shows a native menu of the other accounts, closes it, or resizes both pages. */
+    splitMenu(id: string): void
+    closeSplit(): void
+    setSplitRatio(ratio: number): void
+    saveSplitRatio(ratio: number): void
+    onSplit(cb: (s: { b: string; ratio: number } | undefined) => void): void
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */
     dialog(open: boolean): void
     /** Ctrl+K (D59): main asks for the quick switcher, from the window or a service view. */

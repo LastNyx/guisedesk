@@ -11,6 +11,7 @@ import Settings from './Settings.vue'
 import ShortcutHelp from './ShortcutHelp.vue'
 import SetupScreen from './SetupScreen.vue'
 import Sidebar from './Sidebar.vue'
+import SplitDivider from './SplitDivider.vue'
 import TopBar from './TopBar.vue'
 import { visibleAccounts } from '../../main/services'
 
@@ -45,6 +46,8 @@ const resetting = ref(false)
 const update = ref<UpdateInfo>({ state: 'checking' })
 // Lock countdown (D57): main pushes the time left under the active rule every few seconds; null = no chip.
 const lockChip = ref<{ ms: number; rule: string } | null>(null)
+// Split view (D62): the second account and the divider position pushed by main.
+const split = ref<{ b: string; ratio: number } | undefined>()
 const settingsTab = ref<string | undefined>()
 // An external link that matches several accounts (D40): main asks, we answer once. Main detaches the view while it is open.
 const choosing = ref<LinkChoice | undefined>()
@@ -61,6 +64,7 @@ async function loadAccounts() {
   collapsed.value = !!s.sidebarCollapsed
   sideHidden.value = !!s.sidebarHidden
   if (typeof s.sidebarWidth === 'number') sideWidthPx.value = s.sidebarWidth
+  split.value = s.split
   counts.value = await window.guisedesk.unread()
   sleep.value = await window.guisedesk.sleep()
   update.value = await window.guisedesk.updateState()
@@ -83,6 +87,7 @@ function wipe() {
   switcherOpen.value = false
   helpOpen.value = false
   lockChip.value = null
+  split.value = undefined
 }
 
 // Any layer that must have the service view off the window (D59): Settings, Add account, the link chooser, the dialogs.
@@ -153,6 +158,7 @@ onMounted(async () => {
     sideHidden.value = l.hidden
     sideWidthPx.value = l.width
   })
+  window.guisedesk.onSplit?.((s) => (split.value = s))
   window.guisedesk.onUnread((c) => (counts.value = { ...c }))
   window.guisedesk.onSelected((id) => {
     selectedId.value = id
@@ -256,6 +262,27 @@ function resizeSidebar(w: number) {
 }
 function toggleSidebar() {
   window.guisedesk.setSidebar(!collapsed.value)
+}
+
+// Split view (D62): the native menu picks the second account; the divider resizes both pages.
+function openSplitMenu() {
+  if (current.value) window.guisedesk.splitMenu(current.value.id)
+}
+
+function closeSplit() {
+  window.guisedesk.closeSplit()
+}
+
+function moveSplit(ratio: number) {
+  if (!split.value) return
+  split.value = { ...split.value, ratio }
+  window.guisedesk.setSplitRatio(ratio)
+}
+
+function endSplitDrag(ratio: number) {
+  if (!split.value) return
+  split.value = { ...split.value, ratio }
+  window.guisedesk.saveSplitRatio(ratio)
 }
 
 // Quick switcher (D59): main asks, the app lists its visible accounts and opens the picked one.
@@ -379,10 +406,10 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
     <div v-if="sideHidden" class="sidestrip"><button class="showside" title="Show sidebar (Ctrl+B)" aria-label="Show sidebar" @click="hideSidebar(false)"><svg class="i" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg></button></div>
     <Sidebar v-if="!sideHidden" :width="sideWidthPx" @hide="hideSidebar(true)" @resize="resizeSidebar" :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" :update="update.state === 'available'" @update="openUpdates" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
     <main class="main">
-      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" :lock="lockChip" @lock-menu="openLockMenu" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" @extensions="extensionMenu(current!.id)" />
+      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" :lock="lockChip" :split="!!split" @lock-menu="openLockMenu" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" @extensions="extensionMenu(current!.id)" @split-menu="openSplitMenu" @close-split="closeSplit" />
       <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" :update="update" :tab="settingsTab" @check="checkUpdate" @apply="applyUpdate" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" @shortcuts="openHelp" />
       <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
-      <div v-else class="panel"></div>
+      <div v-else class="panel"><SplitDivider v-if="split" :ratio="split.ratio" @move="moveSplit" @end="endSplitDrag" /></div>
     </main>
     <AccountSheet
       v-if="settingsOpen && sheetAccount"

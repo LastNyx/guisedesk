@@ -24,6 +24,34 @@ export function panelBounds(w: number, h: number, collapsed: boolean, width: num
   return { x: side + PAD_X, y: PAD_TOP + TOP_BAR_H + TOP_BAR_GAP, width: Math.max(0, w - side - 2 * PAD_X), height: Math.max(0, h - PAD_TOP - TOP_BAR_H - TOP_BAR_GAP - PAD_BOTTOM) }
 }
 
+// Split view (D62): the divider stays between 20 and 80 percent, with a small gap the renderer draws.
+export const SPLIT_MIN = 0.2
+export const SPLIT_MAX = 0.8
+export const SPLIT_GAP = 10
+export const clampSplit = (r: unknown): number => (typeof r === 'number' && Number.isFinite(r) ? Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, r)) : 0.5)
+
+export interface Bounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** The two page bounds for a split panel: the divider is at `ratio` of the panel width, with a gap on either side. */
+export function splitBounds(panel: Bounds, ratio: number): { left: Bounds; right: Bounds } {
+  const r = clampSplit(ratio)
+  const center = panel.x + Math.round(panel.width * r)
+  const half = Math.floor(SPLIT_GAP / 2)
+  const rightX = center + (SPLIT_GAP - half)
+  return {
+    left: { x: panel.x, y: panel.y, width: Math.max(0, center - panel.x - half), height: panel.height },
+    right: { x: rightX, y: panel.y, width: Math.max(0, panel.x + panel.width - rightX), height: panel.height }
+  }
+}
+
+/** A pointer position inside the panel as a clamped split ratio. */
+export const splitRatioAt = (clientX: number, left: number, width: number): number => (width > 0 ? clampSplit((clientX - left) / width) : 0.5)
+
 /** Ctrl+B, as Electron reports it in before-input-event. */
 export const isSidebarShortcut = (i: { type: string; control?: boolean; alt?: boolean; meta?: boolean; key: string }): boolean =>
   i.type === 'keyDown' && !!i.control && !i.alt && !i.meta && i.key.toLowerCase() === 'b'

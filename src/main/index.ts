@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { appRoot, dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadQuietWorkHours, loadSchedule, saveSchedule, saveQuietWorkHours, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, loadSidebarLayout, saveSidebarLayout, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setExtensions, setServiceEnabled, setZoom, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadQuietWorkHours, loadSchedule, loadSplit, saveSchedule, saveSplit, saveQuietWorkHours, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, loadSidebarLayout, saveSidebarLayout, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setExtensions, setServiceEnabled, setZoom, type Account, type SplitState } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -45,7 +45,7 @@ import { sidebarOrder } from './services'
 import { PARTS, partsOn, type Part } from '../preload/blur'
 import { onPartition, partitionKey, partitionOf } from './sharing'
 import { secondLaunch } from './singleinstance'
-import { clampSide, isSidebarShortcut, panelBounds as layoutBounds } from './layout'
+import { clampSide, clampSplit, isSidebarShortcut, panelBounds as layoutBounds, splitBounds } from './layout'
 import { applyPendingRestore } from './backup'
 import { backupFileName } from './backuprules'
 import { runBackupWorker } from './backupengine'
@@ -103,6 +103,13 @@ const devTools = process.env.GUISEDESK_DEV === '1'
 
 const views = new Map<string, WebContentsView>()
 let attached: WebContentsView | undefined
+// Split view (D62): the selected account stays `attached`; `second` is the side-by-side account.
+let second: WebContentsView | undefined
+let splitB: string | undefined
+let splitRatio = 0.5
+// The service view that last had focus: zoom keys act on it while split is on, otherwise on the selected one.
+let focusedId: string | undefined
+let onSplitChange: () => void = () => {}
 // While a dialog is open the service view is detached (it would draw over the dialog).
 let dialogOpen = false
 // Unread count per account id, from page titles. GUISEDESK_FAKE_COUNTS="id=3,id2=12" (dev only) pins them instead.
@@ -343,9 +350,14 @@ function hookLinks(v: WebContentsView, a: Account): void {
     openFromView(wc, a, url, disposition)
     return { action: 'deny' }
   })
+  // Split view (D62): zoom keys act on the page that was clicked into.
+  wc.on('focus', () => {
+    focusedId = a.id
+  })
   wc.on('before-input-event', (e, input) => {
     hib.touch(a.id)
     touchIdle()
+    focusedId = a.id
     // Ctrl+B toggles the sidebar, but never while locked (the view is off the window then anyway).
     if (isSidebarShortcut(input) && isUnlocked()) {
       e.preventDefault()
@@ -678,15 +690,40 @@ function notify(win: BrowserWindow, a: Account, p: { title?: string; body?: stri
 /** Puts the selected view in the panel. A view rebuilt from sleep is attached only once its page has loaded; the asleep panel covers the gap. */
 function attach(win: BrowserWindow, v: WebContentsView): void {
   if (win.isDestroyed() || dialogOpen || !isUnlocked() || attached !== v || (attachedId && sleepState[attachedId]?.waking)) return
-  win.contentView.addChildView(v)
-  v.setBounds(panelBounds(win))
+  if (!win.contentView.children.includes(v)) win.contentView.addChildView(v)
+  if (second && !win.contentView.children.includes(second)) win.contentView.addChildView(second)
+  layoutViews(win)
 }
 
 function detach(win: BrowserWindow, v: WebContentsView): void {
   if (!win.isDestroyed() && win.contentView.children.includes(v)) win.contentView.removeChildView(v)
 }
 
+/** Resizes the attached view, and the second one when split is on (D62). */
+function layoutViews(win: BrowserWindow): void {
+  if (win.isDestroyed() || !attached) return
+  const b = panelBounds(win)
+  if (second) {
+    const { left, right } = splitBounds(b, splitRatio)
+    attached.setBounds(left)
+    second.setBounds(right)
+  } else attached.setBounds(b)
+}
+
+/** Ends split view: detaches the second page, clears the saved setting unless asked to keep it. */
+function endSplit(save = true): void {
+  if (!second && !splitB) return
+  if (second && mainWin) detach(mainWin, second)
+  second = undefined
+  splitB = undefined
+  focusedId = undefined
+  if (save) saveSplit(dir, undefined)
+  if (mainWin && attached) layoutViews(mainWin)
+  onSplitChange()
+}
+
 function show(win: BrowserWindow, a: Account, push: () => void): void {
+  endSplit()
   if (attached) detach(win, attached)
   hib.touch(a.id)
   const wasAsleep = hib.isAsleep(a.id)
@@ -697,6 +734,7 @@ function show(win: BrowserWindow, a: Account, push: () => void): void {
   const v = viewFor(a)
   attached = v
   attachedId = a.id
+  focusedId = a.id
   if (wasAsleep) {
     const done = () => {
       if (!sleepState[a.id]?.waking) return
@@ -714,6 +752,7 @@ function show(win: BrowserWindow, a: Account, push: () => void): void {
 
 function sleepAccount(a: Account, minutes = limitMinutes(a) ?? 0): void {
   popups.closeFor(a.id)
+  if (a.id === splitB) endSplit()
   const v = views.get(a.id)
   if (v) {
     owner.delete(v.webContents.id)
@@ -727,8 +766,10 @@ function setDialog(win: BrowserWindow, open: boolean): void {
   if (open === dialogOpen) return
   dialogOpen = open
   if (!attached) return
-  if (open) detach(win, attached)
-  else attach(win, attached)
+  if (open) {
+    detach(win, attached)
+    if (second) detach(win, second)
+  } else attach(win, attached)
 }
 
 let mainWin: BrowserWindow | undefined
@@ -808,14 +849,14 @@ function createWindow(): BrowserWindow {
     if (c === sidebarCollapsed) return
     sidebarCollapsed = c
     saveSidebarCollapsed(dir, c)
-    attached?.setBounds(panelBounds(win))
+    layoutViews(win)
     if (!win.isDestroyed()) win.webContents.send('sidebar:changed', c)
   }
   const sideLayout = loadSidebarLayout(dir)
   sidebarWidth = clampSide(sideLayout.width)
   sidebarHidden = sideLayout.hidden
   const pushLayout = () => {
-    attached?.setBounds(panelBounds(win))
+    layoutViews(win)
     if (!win.isDestroyed()) win.webContents.send('sidebar:layout', { collapsed: sidebarCollapsed, hidden: sidebarHidden, width: sidebarWidth })
   }
   // Ctrl+B: a hidden sidebar comes back first; otherwise it switches between full and rail.
@@ -830,6 +871,11 @@ function createWindow(): BrowserWindow {
   const enabled = () => accounts.filter((a) => !disabled.has(a.serviceId))
   let selectedId = loadSelected(dir)
   if (!enabled().some((a) => a.id === selectedId)) selectedId = enabled()[0]?.id
+  // Split view saved in settings.json (D62) comes back when both accounts still exist and the main one is selected.
+  const savedSplit = loadSplit(dir)
+  const restorableSplit =
+    savedSplit && savedSplit.a === selectedId && savedSplit.b !== selectedId && enabled().some((a) => a.id === savedSplit.b) ? savedSplit : undefined
+  if (savedSplit && !restorableSplit) saveSplit(dir, undefined)
   // Accounts whose deleted-message keeper could not find WhatsApp's store (D47b); shown as a note in the sheet.
   const keeperDown = new Set<string>()
   // Custom icons are cached files; the renderer gets them as data URLs.
@@ -843,8 +889,60 @@ function createWindow(): BrowserWindow {
     disabledServices: [...disabled],
     sidebarCollapsed,
     sidebarHidden,
-    sidebarWidth
+    sidebarWidth,
+    ...(splitB && attachedId ? { split: { b: splitB, ratio: splitRatio } } : {})
   })
+  // Split view (D62): the top bar shows Close split and the renderer draws the divider from this state.
+  const splitSnapshot = () => (splitB && attachedId ? { b: splitB, ratio: splitRatio } : undefined)
+  onSplitChange = () => {
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('split:changed', splitSnapshot())
+  }
+  const spread = (): string | undefined => (splitB && (focusedId === splitB || focusedId === attachedId) ? focusedId : attachedId)
+  /** Starts split view (D62): the picked account gets its own view and session, next to the selected one. */
+  const startSplit = (bId: string) => {
+    if (!attached || !attachedId) return
+    const a = accounts.find((x) => x.id === attachedId)
+    const b = enabled().find((x) => x.id === bId)
+    if (!a || !b || b.id === a.id || (splitB === b.id && second)) return
+    if (second) endSplit(false)
+    splitB = b.id
+    splitRatio = clampSplit(splitRatio)
+    if (hib.isAsleep(b.id)) {
+      hib.wake(b.id)
+      delete sleepState[b.id]
+    }
+    second = viewFor(b)
+    attach(win, attached)
+    saveSplit(dir, { a: a.id, b: b.id, ratio: splitRatio })
+    appendEvent(dir, `split view ${a.id} + ${b.id}`)
+    onSplitChange()
+    pushSleep()
+  }
+  const closeSplit = () => {
+    if (!splitB && !second) return
+    const was = splitB
+    endSplit(true)
+    appendEvent(dir, `split view closed${was ? ` (${was})` : ''}`)
+  }
+  /** Restores a saved split after the main account is on screen; a sleeping second account wakes first. */
+  const restoreSplit = (s: SplitState) => {
+    const b = enabled().find((x) => x.id === s.b)
+    if (!attached || !b || b.id === attachedId) {
+      saveSplit(dir, undefined)
+      return
+    }
+    splitB = b.id
+    splitRatio = clampSplit(s.ratio)
+    if (hib.isAsleep(b.id)) {
+      hib.wake(b.id)
+      delete sleepState[b.id]
+    }
+    second = viewFor(b)
+    attach(win, attached)
+    appendEvent(dir, `split view restored ${attachedId} + ${b.id}`)
+    onSplitChange()
+    pushSleep()
+  }
   // Zoom (D32): Ctrl+= / Ctrl+- / Ctrl+0 act on the shown account; saved per account, pushed to the renderer for the top bar chip.
   const changeZoom = (id: string, level: number) => {
     accounts = orderedAccounts(setZoom(dir, id, level))
@@ -857,7 +955,7 @@ function createWindow(): BrowserWindow {
   zoomKeyDown = (input) => {
     const dirKey = zoomKey(input)
     if (!dirKey) return false
-    const a = isUnlocked() && !dialogOpen ? accounts.find((x) => x.id === attachedId) : undefined
+    const a = isUnlocked() && !dialogOpen ? accounts.find((x) => x.id === spread()) : undefined
     if (a) changeZoom(a.id, nextZoom(a.zoom ?? 0, dirKey))
     return true
   }
@@ -1191,6 +1289,10 @@ function createWindow(): BrowserWindow {
     if (typed !== RESET_WORD) return { error: `Type ${RESET_WORD} to confirm` }
     appendEvent(dir, 'reset (all data wiped from the app)')
     const keys = new Set([...loadAccounts(dir).map(partitionKey), ...views.keys()])
+    if (second) detach(win, second)
+    second = undefined
+    splitB = undefined
+    saveSplit(dir, undefined)
     if (attached) detach(win, attached)
     attached = undefined
     attachedId = undefined
@@ -1251,6 +1353,7 @@ function createWindow(): BrowserWindow {
       pending = undefined
       popups.closeAll()
       if (attached) detach(win, attached)
+      if (second) detach(win, second)
       win.webContents.focus()
     }
     tray.setUnread(totalUnread(counts), !isUnlocked())
@@ -1290,6 +1393,7 @@ function createWindow(): BrowserWindow {
   push()
   // Selected account gone or its service switched off: show the first account still in the sidebar, or none.
   const reconcile = () => {
+    if (splitB && !enabled().some((a) => a.id === splitB)) endSplit()
     if (enabled().some((a) => a.id === selectedId)) return
     if (attached) detach(win, attached)
     attached = undefined
@@ -1347,6 +1451,7 @@ function createWindow(): BrowserWindow {
   })
   gipc.handle('accounts:remove', async (_e: unknown, id: string) => {
     if (!accounts.some((a) => a.id === id)) return snapshot()
+    if (id === splitB) endSplit()
     popups.closeFor(id)
     try {
       appendEvent(dir, `remove account ${id} (from the app)`)
@@ -1406,6 +1511,7 @@ function createWindow(): BrowserWindow {
   gipc.on('accounts:sleep', (e: { sender: { id: number } }, id: string) => {
     const a = fromApp(e) && enabled().find((x) => x.id === id)
     if (!a || hib.isAsleep(a.id)) return
+    if (attachedId === a.id || id === splitB) endSplit()
     if (attachedId === a.id && attached) {
       detach(win, attached)
       attached = undefined
@@ -1459,6 +1565,37 @@ function createWindow(): BrowserWindow {
     }
   })
   gipc.on('ui:dialog', (_e: unknown, open: boolean) => setDialog(win, !!open))
+  // Split view (D62): a native menu picks the second account; ratio updates resize both pages live and save on release.
+  gipc.on('split:menu', (e: { sender: { id: number } }, id: string) => {
+    const a = fromApp(e) && enabled().find((x) => x.id === id)
+    if (!a) return
+    const others = enabled().filter((x) => x.id !== a.id)
+    const items: Electron.MenuItemConstructorOptions[] = others.length
+      ? others.map((x) => ({
+          label: `${x.label} · ${presetFor(x.serviceId)?.name ?? x.custom?.name ?? x.serviceId}`,
+          type: 'checkbox' as const,
+          checked: splitB === x.id,
+          click: () => startSplit(x.id)
+        }))
+      : [{ label: 'No other account', enabled: false }]
+    if (splitB) items.push({ type: 'separator' as const }, { label: 'Close split', click: closeSplit })
+    Menu.buildFromTemplate(items).popup({ window: win })
+  })
+  gipc.on('split:close', (e: { sender: { id: number } }) => {
+    if (fromApp(e)) closeSplit()
+  })
+  gipc.on('split:ratio', (e: { sender: { id: number } }, r: unknown) => {
+    if (!fromApp(e) || !second) return
+    splitRatio = clampSplit(r)
+    layoutViews(win)
+  })
+  gipc.on('split:ratio-end', (e: { sender: { id: number } }, r: unknown) => {
+    if (!fromApp(e) || !second || !attachedId || !splitB) return
+    splitRatio = clampSplit(r)
+    layoutViews(win)
+    saveSplit(dir, { a: attachedId, b: splitB, ratio: splitRatio })
+    onSplitChange()
+  })
   gipc.handle('accounts:mute', (_e: unknown, id: string, muted: boolean) => {
     if (!accounts.some((a) => a.id === id)) return snapshot()
     accounts = orderedAccounts(setMuted(dir, id, !!muted))
@@ -1630,8 +1767,14 @@ function createWindow(): BrowserWindow {
       setTimeout(() => notify(win, fake, { title: 'Alice', body: 'Lunch at 12?' }, () => selectFromNotification(fake)), 4000)
     )
   const first = accounts.find((a) => a.id === selectedId)
-  if (first && !hib.isAsleep(first.id)) show(win, first, pushSleep)
-  win.on('resize', () => attached?.setBounds(panelBounds(win)))
+  if (first && !hib.isAsleep(first.id)) {
+    show(win, first, pushSleep)
+    if (restorableSplit && restorableSplit.a === first.id) restoreSplit(restorableSplit)
+  } else if (savedSplit) saveSplit(dir, undefined)
+  win.on('resize', () => layoutViews(win))
+  win.on('focus', () => {
+    focusedId = attachedId
+  })
 
   const shot = process.env.GUISEDESK_SHOT
   if (shot) {
