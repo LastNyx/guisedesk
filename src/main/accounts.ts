@@ -151,6 +151,20 @@ export function loadSidebarCollapsed(dir: string): boolean {
   }
 }
 
+/** Sidebar width and hidden state (D52) in settings.json: sidebarWidth (px), sidebarHidden. */
+export function loadSidebarLayout(dir: string): { width: number; hidden: boolean } {
+  try {
+    const s = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))
+    return { width: typeof s.sidebarWidth === 'number' ? s.sidebarWidth : 232, hidden: s.sidebarHidden === true }
+  } catch {
+    return { width: 232, hidden: false }
+  }
+}
+
+export function saveSidebarLayout(dir: string, v: { width: number; hidden: boolean }): void {
+  updateSettings(dir, { sidebarWidth: v.width, sidebarHidden: v.hidden })
+}
+
 export function saveSidebarCollapsed(dir: string, sidebarCollapsed: boolean): void {
   let settings: Record<string, unknown> = {}
   try {
@@ -169,6 +183,21 @@ export function loadIdleMinutes(dir: string): 5 | 10 | 30 | 'manual' {
   } catch {
     return 10
   }
+}
+
+import { normalizeSchedule, type LockSchedule } from './schedule'
+
+/** Lock schedule (D51) in settings.json key lockSchedule; off with defaults when missing. */
+export function loadSchedule(dir: string): LockSchedule {
+  try {
+    return normalizeSchedule(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).lockSchedule)
+  } catch {
+    return normalizeSchedule(undefined)
+  }
+}
+
+export function saveSchedule(dir: string, s: LockSchedule): void {
+  updateSettings(dir, { lockSchedule: s })
 }
 
 export function saveIdleMinutes(dir: string, minutes: 5 | 10 | 30 | 'manual'): void {

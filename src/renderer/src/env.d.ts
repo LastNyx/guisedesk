@@ -35,6 +35,16 @@ interface BlockSnapshot {
   accounts: Record<string, { blocked: number; popup?: string; total?: number; popups?: number; hosts?: Record<string, number> }>
 }
 
+interface LockScheduleRow {
+  on: boolean
+  days: number[]
+  start: string
+  end: string
+  workMinutes: number
+  offMinutes: number
+  count: 'unlock' | 'idle'
+}
+
 interface ExtensionRow {
   id: string
   name: string
@@ -48,6 +58,8 @@ interface Snapshot {
   disabledServices: string[]
   /** Sidebar shown as the 64px rail (D24). */
   sidebarCollapsed?: boolean
+  sidebarHidden?: boolean
+  sidebarWidth?: number
 }
 
 interface LockInfo {
@@ -74,6 +86,9 @@ interface Window {
     setupLock(kind: 'pin' | 'password', secret: string, repeat: string): Promise<{ ok: true } | { error: string }>
     lock(): void
     /** Settings that act at once: idle lock minutes, Do Not Disturb, start on login (autostart entry present). */
+    /** Lock schedule (D51): work-hours and off-hours lock limits. setSchedule returns the saved (normalized) value. */
+    schedule(): Promise<LockScheduleRow>
+    setSchedule(s: LockScheduleRow): Promise<LockScheduleRow>
     prefs(): Promise<{ idleLock: 5 | 10 | 30 | 'manual'; dnd: boolean; startOnLogin: boolean }>
     setIdle(minutes: 5 | 10 | 30 | 'manual'): Promise<boolean>
     setDnd(on: boolean): Promise<boolean>
@@ -96,6 +111,10 @@ interface Window {
     setSidebar(collapsed: boolean): void
     /** Main changed the sidebar (Ctrl+B). */
     onSidebar(cb: (collapsed: boolean) => void): void
+    /** Hide the sidebar completely, or set its full width by dragging (D52). Main resizes the page and pushes the layout. */
+    setSidebarHidden(hidden: boolean): void
+    setSidebarWidth(width: number): void
+    onSidebarLayout(cb: (l: { collapsed: boolean; hidden: boolean; width: number }) => void): void
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */
     dialog(open: boolean): void
     /** Top bar Reload: reloads the account's view, or wakes it when asleep. */

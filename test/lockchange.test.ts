@@ -33,7 +33,7 @@ describe('Change PIN or password', () => {
 
   it('applies the setup rules to the new secret (typed twice) and keeps the old one when they fail', async () => {
     const { lock } = await unlocked()
-    expect(await lock.change('123456', 'pin', '12345', '12345')).toHaveProperty('error')
+    expect(await lock.change('123456', 'pin', '123', '123')).toHaveProperty('error')
     expect(await lock.change('123456', 'pin', '654321', '654322')).toEqual({ error: 'The two entries do not match' })
     lock.lock()
     expect(await lock.unlock('123456')).toEqual({ result: 'ok' })

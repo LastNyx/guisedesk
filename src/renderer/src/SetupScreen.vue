@@ -39,7 +39,7 @@ async function save() {
     <div>
       <div class="brand"><BrandMark :size="40" />GuiseDesk</div>
       <h2>{{ title }}</h2>
-      <div class="hint">{{ kind === 'pin' ? '6 to 12 digits.' : 'At least 8 characters.' }} Only a hash is stored; a forgotten one can't be recovered.</div>
+      <div class="hint">{{ kind === 'pin' ? '4 to 12 digits.' : 'At least 8 characters.' }} Only a hash is stored; a forgotten one can't be recovered.</div>
       <div class="seg" role="group" aria-label="Unlock with">
         <span :class="{ sel: kind === 'pin' }" @click="pick('pin')">PIN</span>
         <span :class="{ sel: kind === 'password' }" @click="pick('password')">Password</span>

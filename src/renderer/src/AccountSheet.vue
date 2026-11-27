@@ -33,8 +33,9 @@ function logout() {
 </script>
 
 <template>
-  <div class="veil" @keydown.esc="emit('done')">
+  <div class="veil" @click.self="emit('done')">
     <div class="glass sheet" role="dialog" :aria-label="`${account.label} settings`">
+      <button class="ib x" title="Close (Esc)" aria-label="Close" @click="emit('done')"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
       <div class="sh">
         <span class="av big" :style="{ background: account.colour }">{{ initials(account.label) }}<span class="svc" :style="logoStyle(account.serviceId)"><LogoGlyph :service-id="account.serviceId" :icon="account.custom?.icon" /></span></span>
         <div><h3>{{ account.label }}</h3><div class="hint">{{ serviceName() }} account</div></div>

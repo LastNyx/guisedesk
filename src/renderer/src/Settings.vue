@@ -18,7 +18,7 @@ watch(() => props.tab, (t) => t && TABS.includes(t) && (tab.value = t))
 
 <template>
   <section class="settings">
-    <div class="top"><button class="ib" title="Back" aria-label="Back" @click="emit('back')"><svg class="i" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg></button><div class="title">Settings</div></div>
+    <div class="top"><button class="ib" title="Back" aria-label="Back" @click="emit('back')"><svg class="i" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" /></svg></button><div class="title">Settings</div><button class="ib x close" title="Close (Esc)" aria-label="Close" @click="emit('back')"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button></div>
     <div class="tabs"><span v-for="t in TABS" :key="t" :class="{ sel: t === tab }" @click="tab = t">{{ t }}</span></div>
     <SettingsServices v-if="tab === 'Services'" :accounts="accounts" :disabled="disabled" @toggle="(s, on) => emit('toggle', s, on)" @open="(id) => emit('open', id)" />
     <SettingsLock v-else-if="tab === 'Lock'" @reset="emit('reset')" />

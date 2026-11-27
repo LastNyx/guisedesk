@@ -1,6 +1,12 @@
 // Window layout numbers shared by the renderer (Sidebar.vue) and main (service view bounds). D24, D26.
 export const SIDE_FULL = 232
 export const SIDE_MINI = 64
+// Drag-resizable full width (D52), saved in settings.json sidebarWidth.
+// Hidden: a 24px strip keeps the show button reachable (the page view would cover it otherwise).
+export const SIDE_HIDDEN = 24
+export const SIDE_MIN = 180
+export const SIDE_MAX = 420
+export const clampSide = (w: unknown): number => (typeof w === 'number' && Number.isFinite(w) ? Math.round(Math.min(SIDE_MAX, Math.max(SIDE_MIN, w))) : SIDE_FULL)
 // Main area padding around the content panel: top 12, left/right 16, bottom 16.
 export const PAD_TOP = 12
 export const PAD_X = 16
@@ -9,11 +15,12 @@ export const PAD_BOTTOM = 16
 export const TOP_BAR_H = 34
 export const TOP_BAR_GAP = 12
 
-export const sideWidth = (collapsed: boolean): number => (collapsed ? SIDE_MINI : SIDE_FULL)
+/** Sidebar width: 0 when hidden (D52), the rail when collapsed, else the saved full width. */
+export const sideWidth = (collapsed: boolean, width: number = SIDE_FULL, hidden = false): number => (hidden ? SIDE_HIDDEN : collapsed ? SIDE_MINI : clampSide(width))
 
 /** Where the selected service view goes, inside a window of the given content size. */
-export function panelBounds(w: number, h: number, collapsed: boolean) {
-  const side = sideWidth(collapsed)
+export function panelBounds(w: number, h: number, collapsed: boolean, width: number = SIDE_FULL, hidden = false) {
+  const side = sideWidth(collapsed, width, hidden)
   return { x: side + PAD_X, y: PAD_TOP + TOP_BAR_H + TOP_BAR_GAP, width: Math.max(0, w - side - 2 * PAD_X), height: Math.max(0, h - PAD_TOP - TOP_BAR_H - TOP_BAR_GAP - PAD_BOTTOM) }
 }
 

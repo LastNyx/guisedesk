@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { appRoot, dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setExtensions, setServiceEnabled, setZoom, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSchedule, saveSchedule, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, loadSidebarLayout, saveSidebarLayout, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setExtensions, setServiceEnabled, setZoom, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -22,6 +22,7 @@ import { ElectronChromeExtensions } from 'electron-chrome-extensions'
 import { downloadExtension } from 'electron-chrome-web-store'
 import { createExtensionFetcher, enabledFor, extensionsDir, listInstalled, parseExtensionId, toggled } from './extensions'
 import { appendEvent, LOGIN_COOKIES, lostLogins } from './events'
+import { normalizeSchedule } from './schedule'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
@@ -42,7 +43,7 @@ import { sidebarOrder } from './services'
 import { PARTS, partsOn, type Part } from '../preload/blur'
 import { onPartition, partitionKey, partitionOf } from './sharing'
 import { secondLaunch } from './singleinstance'
-import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
+import { clampSide, isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
 // so sessions and partitions still land in the chosen dir. The name is what notifications and the tray show.
@@ -61,9 +62,12 @@ if (!app.requestSingleInstanceLock()) {
 // Content panel inside the renderer layout (D26 compact): numbers in layout.ts, shared with Sidebar.vue.
 // Sidebar rail state (D24), loaded from settings in createWindow.
 let sidebarCollapsed = false
+// Drag width and fully hidden sidebar (D52).
+let sidebarWidth = 232
+let sidebarHidden = false
 function panelBounds(win: BrowserWindow) {
   const [w, h] = win.getContentSize()
-  return layoutBounds(w, h, sidebarCollapsed)
+  return layoutBounds(w, h, sidebarCollapsed, sidebarWidth, sidebarHidden)
 }
 // The account page's corners match the rounded inset panel (10px in tokens.css).
 const VIEW_RADIUS = 10
@@ -641,7 +645,21 @@ function createWindow(): BrowserWindow {
     attached?.setBounds(panelBounds(win))
     if (!win.isDestroyed()) win.webContents.send('sidebar:changed', c)
   }
-  toggleSidebar = () => setSidebar(!sidebarCollapsed)
+  const sideLayout = loadSidebarLayout(dir)
+  sidebarWidth = clampSide(sideLayout.width)
+  sidebarHidden = sideLayout.hidden
+  const pushLayout = () => {
+    attached?.setBounds(panelBounds(win))
+    if (!win.isDestroyed()) win.webContents.send('sidebar:layout', { collapsed: sidebarCollapsed, hidden: sidebarHidden, width: sidebarWidth })
+  }
+  // Ctrl+B: a hidden sidebar comes back first; otherwise it switches between full and rail.
+  toggleSidebar = () => {
+    if (sidebarHidden) {
+      sidebarHidden = false
+      saveSidebarLayout(dir, { width: sidebarWidth, hidden: false })
+      pushLayout()
+    } else setSidebar(!sidebarCollapsed)
+  }
   let accounts = orderedAccounts(loadAccounts(dir))
   const enabled = () => accounts.filter((a) => !disabled.has(a.serviceId))
   let selectedId = loadSelected(dir)
@@ -657,7 +675,9 @@ function createWindow(): BrowserWindow {
     }),
     selectedId,
     disabledServices: [...disabled],
-    sidebarCollapsed
+    sidebarCollapsed,
+    sidebarHidden,
+    sidebarWidth
   })
   // Zoom (D32): Ctrl+= / Ctrl+- / Ctrl+0 act on the shown account; saved per account, pushed to the renderer for the top bar chip.
   const changeZoom = (id: string, level: number) => {
@@ -686,7 +706,7 @@ function createWindow(): BrowserWindow {
   ipcMain.on('lock:lock', (e) => fromApp(e) && lock.lock())
   // Idle (D15): the app window and service views report mouse input through the preload; keys come from before-input-event.
   // The setting is read at start; Settings changes it through applyIdle (setMinutes).
-  const triggers = wireTriggers({ lock, power: powerMonitor, now: Date.now, minutes: loadIdleMinutes(dir) })
+  const triggers = wireTriggers({ lock, power: powerMonitor, now: Date.now, minutes: loadIdleMinutes(dir), schedule: loadSchedule(dir) })
   touchIdle = triggers.touch
   setInterval(triggers.check, 10_000).unref()
   ipcMain.removeAllListeners('idle:touch')
@@ -821,6 +841,16 @@ function createWindow(): BrowserWindow {
   gipc.handle('prefs:get', (e: { sender: { id: number } }) =>
     fromApp(e) ? { idleLock: loadIdleMinutes(dir), dnd, startOnLogin: isAutostart(autostartOpts()) } : undefined
   )
+  // Lock schedule (D51): saved, then handed to the running timer.
+  gipc.handle('prefs:schedule-get', (e: { sender: { id: number } }) => (fromApp(e) ? loadSchedule(dir) : undefined))
+  gipc.handle('prefs:schedule', (e: { sender: { id: number } }, v: unknown) => {
+    if (!fromApp(e)) return undefined
+    const s = normalizeSchedule(v)
+    saveSchedule(dir, s)
+    triggers.setSchedule(s)
+    appendEvent(dir, `lock schedule ${JSON.stringify(s)}`)
+    return s
+  })
   gipc.handle('prefs:idle', (e: { sender: { id: number } }, v: unknown) => fromApp(e) && applyIdle(dir, v, triggers))
   gipc.handle('prefs:dnd', (e: { sender: { id: number } }, on: unknown) => {
     if (!fromApp(e)) return false
@@ -1027,6 +1057,18 @@ function createWindow(): BrowserWindow {
   gipc.handle('accounts:zoom-reset', (_e: unknown, id: string) => {
     if (accounts.some((a) => a.id === id)) changeZoom(id, 0)
     return snapshot()
+  })
+  gipc.on('sidebar:hidden', (e: { sender: { id: number } }, h: unknown) => {
+    if (!fromApp(e)) return
+    sidebarHidden = !!h
+    saveSidebarLayout(dir, { width: sidebarWidth, hidden: sidebarHidden })
+    pushLayout()
+  })
+  gipc.on('sidebar:width', (e: { sender: { id: number } }, w: unknown) => {
+    if (!fromApp(e)) return
+    sidebarWidth = clampSide(w)
+    saveSidebarLayout(dir, { width: sidebarWidth, hidden: sidebarHidden })
+    pushLayout()
   })
   gipc.on('sidebar:set', (e: { sender: { id: number } }, c: unknown) => fromApp(e) && setSidebar(!!c))
   // Reload (top bar): an asleep account wakes through the normal show path, otherwise its view reloads.
