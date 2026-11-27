@@ -13,6 +13,10 @@ export type ZoomDir = 'in' | 'out' | 'reset'
 export const ZOOM_MIN = -3
 export const ZOOM_MAX = 5
 
+/** Ctrl+K (D59): the quick switcher, handled in the app window and in service views. */
+export const isSwitcherShortcut = (i: { type: string; control?: boolean; alt?: boolean; meta?: boolean; shift?: boolean; key: string }): boolean =>
+  i.type === 'keyDown' && !!i.control && !i.alt && !i.meta && !i.shift && i.key.toLowerCase() === 'k'
+
 /** Ctrl+=, Ctrl++ (with Shift), Ctrl+-, Ctrl+0, also the numpad keys; anything else is null. */
 export function zoomKey(i: KeyInput): ZoomDir | null {
   if (i.type !== 'keyDown' || !i.control || i.alt || i.meta) return null

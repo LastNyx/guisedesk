@@ -5,6 +5,7 @@ import AccountSheet from './AccountSheet.vue'
 import AsleepPanel from './AsleepPanel.vue'
 import LinkChooser from './LinkChooser.vue'
 import LockScreen from './LockScreen.vue'
+import QuickSwitcher from './QuickSwitcher.vue'
 import ResetScreen from './ResetScreen.vue'
 import Settings from './Settings.vue'
 import SetupScreen from './SetupScreen.vue'
@@ -46,6 +47,8 @@ const lockChip = ref<{ ms: number; rule: string } | null>(null)
 const settingsTab = ref<string | undefined>()
 // An external link that matches several accounts (D40): main asks, we answer once. Main detaches the view while it is open.
 const choosing = ref<LinkChoice | undefined>()
+// Ctrl+K quick switcher (D59): a modal over the app; main detaches the service view while any layer is open.
+const switcherOpen = ref(false)
 
 async function loadAccounts() {
   const s = await window.guisedesk.state()
@@ -74,7 +77,16 @@ function wipe() {
   disabled.value = []
   settingsOpen.value = false
   sheetId.value = undefined
+  switcherOpen.value = false
   lockChip.value = null
+}
+
+// Any layer that must have the service view off the window (D59): Settings, Add account, the link chooser, the switcher.
+function overlayOpen(): boolean {
+  return settingsOpen.value || adding.value || !!choosing.value || switcherOpen.value
+}
+function syncDialog() {
+  window.guisedesk.dialog(overlayOpen())
 }
 
 async function apply(info: LockInfo) {
@@ -89,7 +101,8 @@ async function apply(info: LockInfo) {
 // Esc closes the topmost layer (D53): a link choice, then Add account, then the account sheet, then Settings.
 function onEsc(e: KeyboardEvent) {
   if (e.key !== 'Escape' || lockInfo.value.state !== 'unlocked') return
-  if (choosing.value) chosen(null)
+  if (switcherOpen.value) closeSwitcher()
+  else if (choosing.value) chosen(null)
   else if (adding.value) closeAdd()
   else if (sheetId.value) sheetId.value = undefined
   else if (settingsOpen.value) closeSettings()
@@ -126,8 +139,10 @@ onMounted(async () => {
   window.guisedesk.onLinkChoose((r) => {
     if (lockInfo.value.state !== 'unlocked') return
     choosing.value = r
-    window.guisedesk.dialog(true)
+    syncDialog()
   })
+  // Ctrl+K (D59) from main, whether focus was in the window or a service view.
+  window.guisedesk.onSwitcher?.(() => openSwitcher())
   window.guisedesk.onOpenSettings(() => lockInfo.value.state === 'unlocked' && openSettings())
   await apply(await window.guisedesk.lockState())
   // Dev-only: the screenshot hook opens the dialog via ?dialog=add (or settings, with ?sheet=<account id>).
@@ -219,10 +234,29 @@ function toggleSidebar() {
   window.guisedesk.setSidebar(!collapsed.value)
 }
 
+// Quick switcher (D59): main asks, the app lists its visible accounts and opens the picked one.
+function openSwitcher() {
+  if (lockInfo.value.state !== 'unlocked') return
+  switcherOpen.value = true
+  syncDialog()
+}
+
+function closeSwitcher() {
+  if (!switcherOpen.value) return
+  switcherOpen.value = false
+  syncDialog()
+}
+
+function pickSwitcher(id: string) {
+  switcherOpen.value = false
+  select(id)
+  syncDialog()
+}
+
 function openSettings() {
   if (settingsOpen.value) return
   settingsOpen.value = true
-  window.guisedesk.dialog(true)
+  syncDialog()
 }
 
 function openUpdates() {
@@ -245,7 +279,7 @@ function closeSettings() {
   settingsTab.value = undefined
   if (!settingsOpen.value) return
   settingsOpen.value = false
-  window.guisedesk.dialog(false)
+  syncDialog()
 }
 
 function openSheet(id: string) {
@@ -274,17 +308,17 @@ function chosen(choice: string | null) {
   if (!choosing.value) return
   window.guisedesk.chooseLink(choosing.value.id, choice)
   choosing.value = undefined
-  if (!adding.value && !settingsOpen.value) window.guisedesk.dialog(false)
+  syncDialog()
 }
 
 function openAdd() {
   adding.value = true
-  window.guisedesk.dialog(true)
+  syncDialog()
 }
 
 function closeAdd() {
   adding.value = false
-  window.guisedesk.dialog(false)
+  syncDialog()
 }
 
 async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
@@ -327,5 +361,6 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
     />
     <LinkChooser v-if="choosing" :url="choosing.url" :candidates="choosing.candidates" @choose="chosen" />
     <AddAccount v-if="adding" :accounts="accounts" :server-error="addError" @add="add" @cancel="closeAdd" />
+    <QuickSwitcher v-if="switcherOpen" :accounts="shown" @choose="pickSwitcher" @close="closeSwitcher" />
   </div>
 </template>

@@ -40,7 +40,7 @@ import { checkForUpdate, realRun, type UpdateInfo } from './updater'
 import { version } from '../../package.json'
 import { buildContextMenu, rowMenuItems } from './contextmenu'
 import { doneNotice, loadDownloads, saveDownloads, uniquePath } from './downloads'
-import { nextZoom, switchTarget, zoomKey, type KeyInput } from './shortcuts'
+import { isSwitcherShortcut, nextZoom, switchTarget, zoomKey, type KeyInput } from './shortcuts'
 import { sidebarOrder } from './services'
 import { PARTS, partsOn, type Part } from '../preload/blur'
 import { onPartition, partitionKey, partitionOf } from './sharing'
@@ -116,6 +116,8 @@ let toggleSidebar: () => void = () => {}
 let zoomKeyDown: (i: KeyInput) => boolean = () => false
 // Ctrl+1..9 / Ctrl+Tab (D33): true when the key switched the account.
 let switchKeyDown: (i: KeyInput) => boolean = () => false
+// Ctrl+K (D59): ask the renderer to open the quick switcher over everything, service views included.
+let openSwitcher: () => void = () => {}
 const live = new Set<Notification>() // keep references so click handlers survive GC
 
 /** One request to the site for its favicon (Custom URL accounts only, once per host). */
@@ -276,6 +278,12 @@ function openPopup(a: Account, url: string): void {
     hib.touch(a.id)
     touchIdle()
     if (input.type !== 'keyDown') return
+    // Ctrl+K (D59) opens the quick switcher in the main window.
+    if (isSwitcherShortcut(input) && isUnlocked()) {
+      e.preventDefault()
+      openSwitcher()
+      return
+    }
     // Ctrl+L locks from a popup too; locking closes every popup (D37).
     if (isLockShortcut(input)) {
       e.preventDefault()
@@ -318,6 +326,12 @@ function hookLinks(v: WebContentsView, a: Account): void {
     if (isSidebarShortcut(input) && isUnlocked()) {
       e.preventDefault()
       toggleSidebar()
+      return
+    }
+    // Ctrl+K (D59): the page never sees it; the renderer opens the quick switcher and detaches this view.
+    if (isSwitcherShortcut(input) && isUnlocked()) {
+      e.preventDefault()
+      openSwitcher()
       return
     }
     if (zoomKeyDown(input) || switchKeyDown(input)) {
@@ -721,6 +735,11 @@ function createWindow(): BrowserWindow {
     win.show()
     win.focus()
   }
+  // Ctrl+K (D59) from the window or a service view: raise the window and let the renderer open the dialog.
+  openSwitcher = () => {
+    showWindow()
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('ui:switcher')
+  }
   // A second launch: raise this window (lock state unchanged) unless it was a --hidden login start.
   app.on('second-instance', (_e, argv) => {
     if (secondLaunch(argv) === 'ignore') return
@@ -1088,6 +1107,12 @@ function createWindow(): BrowserWindow {
     if (isSidebarShortcut(input) && isUnlocked()) {
       e.preventDefault()
       toggleSidebar()
+      return
+    }
+    // Ctrl+K (D59): the renderer opens the quick switcher and detaches the view.
+    if (isSwitcherShortcut(input) && isUnlocked()) {
+      e.preventDefault()
+      openSwitcher()
       return
     }
     if (zoomKeyDown(input) || switchKeyDown(input)) {

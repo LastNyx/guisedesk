@@ -143,6 +143,7 @@ if (service) {
   setSidebarWidth: (width: number) => ipcRenderer.send('sidebar:width', width),
   onSidebarLayout: (cb: (l: { collapsed: boolean; hidden: boolean; width: number }) => void) => ipcRenderer.on('sidebar:layout', (_e, l) => cb(l)),
   select: (id: string) => ipcRenderer.send('accounts:select', id),
+  onSwitcher: (cb: () => void) => ipcRenderer.on('ui:switcher', () => cb()),
   dialog: (open: boolean) => ipcRenderer.send('ui:dialog', open),
   reload: (id: string) => ipcRenderer.send('accounts:reload', id),
   sleepNow: (id: string) => ipcRenderer.send('accounts:sleep', id),

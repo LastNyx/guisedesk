@@ -133,6 +133,8 @@ interface Window {
     onSidebarLayout(cb: (l: { collapsed: boolean; hidden: boolean; width: number }) => void): void
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */
     dialog(open: boolean): void
+    /** Ctrl+K (D59): main asks for the quick switcher, from the window or a service view. */
+    onSwitcher(cb: () => void): void
     /** Top bar Reload: reloads the account's view, or wakes it when asleep. */
     reload(id: string): void
     /** Sleep now (D27): unloads the account's view; it wakes on Wake up, Reload or reselect. */
