@@ -179,8 +179,9 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 /* Settings: services list and account sheet (frame 3, v5 compact sizes). */
 .brand .ib + .ib { margin-left: -4px; }
 .settings { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
-.top { display: flex; align-items: center; gap: 10px; height: 34px; margin-bottom: 12px; flex: none; }
-.top .title { font-size: 16px; font-weight: 700; min-width: 0; flex-shrink: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top { display: flex; align-items: center; gap: 10px; height: 34px; margin-bottom: 12px; flex: none; min-width: 0; overflow: hidden; }
+.top > :not(.title) { flex: none; }
+.top .title { font-size: 16px; font-weight: 700; min-width: 0; flex: 1 1 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tabs { display: flex; gap: 22px; margin-bottom: 12px; border-bottom: 1px solid var(--line); flex: none; }
 .tabs span { padding: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
 .tabs span.sel { color: var(--text); box-shadow: inset 0 -2px 0 var(--text); }

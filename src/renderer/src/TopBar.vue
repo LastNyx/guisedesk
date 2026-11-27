@@ -30,10 +30,11 @@ const chip = computed(() => {
   return limitMinutes(props.account) === null ? 'Always on' : ''
 })
 // Whole minutes left, rounded up, so the chip never says "0 min" while the lock is still ahead.
+// The label stays short (D57): the full rule is in the title and the native menu.
 const lockText = computed(() => {
   const ms = props.lock?.ms
   if (ms === undefined || ms === null) return ''
-  return `Locks in ${Math.max(1, Math.ceil(ms / 60_000))} min`
+  return `${Math.max(1, Math.ceil(ms / 60_000))} min`
 })
 // host:port only, so the chip never shows a proxy password even if one were in the address (D63).
 const proxyText = computed(() => {
@@ -47,7 +48,7 @@ const proxyText = computed(() => {
   <div class="top">
     <div class="title">{{ account.label }} <span>&middot; {{ service }}</span></div>
     <span v-if="chip" class="chip" :class="{ live: chip === 'Always on' }">{{ chip }}</span>
-    <button v-if="lockText" class="chip locks" :title="lock?.rule" @click="emit('lock-menu')">{{ lockText }}</button>
+    <button v-if="lockText" class="chip locks nowrap" :title="lock?.rule" @click="emit('lock-menu')"><svg class="i locki" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>{{ lockText }}</button>
     <button v-if="proxy" class="chip proxy" :title="'Proxy: ' + proxyText" @click="emit('proxy-menu')">Proxy</button>
     <button v-if="account.zoom" class="chip zoom" title="Reset zoom" @click="emit('reset-zoom')">{{ zoomPercent(account.zoom) }}%</button>
     <button v-if="adsOn && !asleep" class="chip shield" title="Ads and trackers blocked" aria-label="Ads and trackers blocked" @click="emit('shield')"><svg class="i" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>{{ blocked ?? 0 }}</button>
@@ -70,6 +71,10 @@ const proxyText = computed(() => {
 .shield { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .shield .i { width: 12px; height: 12px; }
 .popup { cursor: pointer; }
+.locks { display: inline-flex; align-items: center; gap: 4px; flex: none; cursor: pointer; border: 0; font-family: inherit; }
+.locks:hover { color: var(--text); }
+.locks .locki { width: 11px; height: 11px; }
+.nowrap { white-space: nowrap; }
 .proxy { border: 0; cursor: pointer; font-family: inherit; flex: none; white-space: nowrap; }
 .proxy:hover { color: var(--text); }
 .splitbtn { font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 4px 9px; border-radius: 6px; background: var(--raise); color: var(--muted); border: 0; font-family: inherit; white-space: nowrap; flex: none; }

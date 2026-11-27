@@ -134,10 +134,13 @@ describe('TopBar zoom chip', () => {
 })
 
 describe('TopBar lock countdown chip (D57)', () => {
-  it('shows whole minutes rounded up, hides without a rule, and opens the native menu on click', async () => {
+  it('shows a short one-line label with a lock icon, hides without a rule, and opens the native menu on click', async () => {
     expect(mount(TopBar, { props: { account: wa, asleep: false, lock: null } }).find('.locks').exists()).toBe(false)
     const w = mount(TopBar, { props: { account: wa, asleep: false, lock: { ms: 11.4 * 60_000, rule: 'Work hours: 15 min after unlock' } } })
-    expect(w.find('.locks').text()).toBe('Locks in 12 min')
+    expect(w.find('.locks').text()).toBe('12 min')
+    expect(w.find('.locks').text()).not.toContain('Locks in')
+    expect(w.find('.locks').classes()).toContain('nowrap')
+    expect(w.find('.locks .locki').exists()).toBe(true)
     expect(w.find('.locks').attributes('title')).toBe('Work hours: 15 min after unlock')
     await w.find('.locks').trigger('click')
     expect(w.emitted('lock-menu')).toHaveLength(1)
@@ -151,7 +154,8 @@ describe('App lock countdown', () => {
       lockCountdown: async () => ({ ms: 5 * 60_000, rule: 'Idle: 10 min without use' }),
       lockMenu
     })
-    expect(w.find('.top .locks').text()).toBe('Locks in 5 min')
+    expect(w.find('.top .locks').text()).toBe('5 min')
+    expect(w.find('.top .locks').classes()).toContain('nowrap')
     expect(w.find('.top .locks').attributes('title')).toBe('Idle: 10 min without use')
     await w.find('.top .locks').trigger('click')
     expect(lockMenu).toHaveBeenCalled()
