@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { limitMinutes } from '../../main/hibernate'
 import { presetFor } from '../../main/presets'
+import { parseProxy, proxyLabel } from '../../main/proxy'
 import { zoomPercent } from '../../main/shortcuts'
 
 const props = defineProps<{
@@ -14,10 +15,12 @@ const props = defineProps<{
   popup?: string
   /** Lock countdown (D57): time left under the active idle/schedule rule; null or missing = no chip. */
   lock?: { ms: number; rule: string } | null
+  /** Proxy address in effect (D63), without credentials; missing = Direct. */
+  proxy?: string
   /** Split view (D62): the second account sits next to this one. */
   split?: boolean
 }>()
-const emit = defineEmits<{ reload: []; mute: [muted: boolean]; lock: []; sleep: []; settings: []; 'reset-zoom': []; 'open-popup': []; shield: []; extensions: []; 'lock-menu': []; 'split-menu': []; 'close-split': [] }>()
+const emit = defineEmits<{ reload: []; mute: [muted: boolean]; lock: []; sleep: []; settings: []; 'reset-zoom': []; 'open-popup': []; shield: []; extensions: []; 'lock-menu': []; 'proxy-menu': []; 'split-menu': []; 'close-split': [] }>()
 
 const service = computed(() => presetFor(props.account.serviceId)?.name ?? props.account.custom?.name ?? props.account.serviceId)
 // One chip: asleep, then muted, then always on (live chat or an always-on override); a live feed account has none.
@@ -32,6 +35,12 @@ const lockText = computed(() => {
   if (ms === undefined || ms === null) return ''
   return `Locks in ${Math.max(1, Math.ceil(ms / 60_000))} min`
 })
+// host:port only, so the chip never shows a proxy password even if one were in the address (D63).
+const proxyText = computed(() => {
+  if (!props.proxy) return ''
+  const p = parseProxy(props.proxy)
+  return p.ok ? proxyLabel(p.value) : props.proxy
+})
 </script>
 
 <template>
@@ -39,6 +48,7 @@ const lockText = computed(() => {
     <div class="title">{{ account.label }} <span>&middot; {{ service }}</span></div>
     <span v-if="chip" class="chip" :class="{ live: chip === 'Always on' }">{{ chip }}</span>
     <button v-if="lockText" class="chip locks" :title="lock?.rule" @click="emit('lock-menu')">{{ lockText }}</button>
+    <button v-if="proxy" class="chip proxy" :title="'Proxy: ' + proxyText" @click="emit('proxy-menu')">Proxy</button>
     <button v-if="account.zoom" class="chip zoom" title="Reset zoom" @click="emit('reset-zoom')">{{ zoomPercent(account.zoom) }}%</button>
     <button v-if="adsOn && !asleep" class="chip shield" title="Ads and trackers blocked" aria-label="Ads and trackers blocked" @click="emit('shield')"><svg class="i" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>{{ blocked ?? 0 }}</button>
     <button v-if="popup && !asleep" class="chip popup" :title="'Open anyway: ' + popup" @click="emit('open-popup')">Pop-up blocked</button>
@@ -60,6 +70,8 @@ const lockText = computed(() => {
 .shield { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .shield .i { width: 12px; height: 12px; }
 .popup { cursor: pointer; }
+.proxy { border: 0; cursor: pointer; font-family: inherit; flex: none; white-space: nowrap; }
+.proxy:hover { color: var(--text); }
 .splitbtn { font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; padding: 4px 9px; border-radius: 6px; background: var(--raise); color: var(--muted); border: 0; font-family: inherit; white-space: nowrap; flex: none; }
 .splitbtn:hover { color: var(--text); }
 .extbtn { display: inline-flex; align-items: center; margin-left: 6px; padding: 4px 7px; border: 0; border-radius: 6px; background: var(--raise); color: var(--muted); cursor: pointer; }

@@ -5,6 +5,7 @@ import { writeAtomic, type Fs } from './atomic'
 import { PARTS, type Part } from '../preload/blur'
 import { clampSplit } from './layout'
 import { checkShare, validateNewAccount, type NewAccountInput } from './validate'
+import type { ProxyCredential } from './proxy'
 
 export interface Account {
   id: string
@@ -26,6 +27,8 @@ export interface Account {
   zoom?: number
   /** Host account id whose session partition this account uses (D36). */
   shareWith?: string
+  /** Proxy address for this account's partition (D63), without credentials: `socks5://host:1080`. */
+  proxy?: string
   custom?: { name: string; url: string; hosts: string[]; icon?: string }
 }
 
@@ -122,6 +125,41 @@ export function setExtensions(dir: string, id: string, extensions: string[]): Ac
   const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, extensions } : a))
   saveAccounts(dir, accounts)
   return accounts
+}
+
+/** Sets one account's proxy address (D63); undefined removes it (Direct). Returns the saved list. */
+export function setAccountProxy(dir: string, id: string, proxy: string | undefined): Account[] {
+  const accounts = loadAccounts(dir).map((a) => {
+    if (a.id !== id) return a
+    const { proxy: _old, ...rest } = a
+    return proxy ? { ...rest, proxy } : rest
+  })
+  saveAccounts(dir, accounts)
+  return accounts
+}
+
+/** Proxy sign-in per partition (D63) in settings.json key proxyAuth; passwords never go to accounts.json or logs. */
+export function loadProxyAuth(dir: string): Record<string, ProxyCredential> {
+  try {
+    const v = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).proxyAuth
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+    const out: Record<string, ProxyCredential> = {}
+    for (const [key, x] of Object.entries(v as Record<string, unknown>)) {
+      const c = x as { username?: unknown; password?: unknown } | null
+      if (c && typeof c.username === 'string' && typeof c.password === 'string') out[key] = { username: c.username, password: c.password }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** Saves or removes the proxy sign-in for one partition (D63). */
+export function saveProxyAuth(dir: string, key: string, auth: ProxyCredential | undefined): void {
+  const all = loadProxyAuth(dir)
+  if (auth) all[key] = auth
+  else delete all[key]
+  updateSettings(dir, { proxyAuth: Object.keys(all).length ? all : undefined })
 }
 
 /** Global Do Not Disturb (D19) lives in settings.json (key dnd); off when missing. */

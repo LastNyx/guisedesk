@@ -48,6 +48,8 @@ const update = ref<UpdateInfo>({ state: 'checking' })
 const lockChip = ref<{ ms: number; rule: string } | null>(null)
 // Split view (D62): the second account and the divider position pushed by main.
 const split = ref<{ b: string; ratio: number } | undefined>()
+// Per-account proxy (D63): a save error from main shown in the account sheet.
+const proxyError = ref('')
 const settingsTab = ref<string | undefined>()
 // An external link that matches several accounts (D40): main asks, we answer once. Main detaches the view while it is open.
 const choosing = ref<LinkChoice | undefined>()
@@ -164,6 +166,11 @@ onMounted(async () => {
     selectedId.value = id
     closeSettings()
   })
+  // The proxy chip's "Change..." asks for this account's sheet (D63).
+  window.guisedesk.onOpenSheet?.((id) => {
+    if (lockInfo.value.state !== 'unlocked' || !accounts.value.some((a) => a.id === id)) return
+    openSheet(id)
+  })
   window.guisedesk.onLinkChoose((r) => {
     if (lockInfo.value.state !== 'unlocked') return
     choosing.value = r
@@ -199,6 +206,18 @@ function take(s: Snapshot) {
 
 async function mute(id: string, muted: boolean) {
   take(await window.guisedesk.mute(id, muted))
+}
+
+// Per-account proxy (D63): the sheet checks the address locally; main re-checks and saves.
+async function setProxy(id: string, value: string) {
+  proxyError.value = ''
+  const r = await window.guisedesk.setProxy(id, value)
+  if ('error' in r) proxyError.value = r.error
+  else take(r)
+}
+
+function openProxyMenu(id: string) {
+  window.guisedesk.proxyMenu(id)
 }
 
 async function setBlur(id: string, on: boolean) {
@@ -342,12 +361,14 @@ function applyUpdate() {
 function closeSettings() {
   sheetId.value = undefined
   settingsTab.value = undefined
+  proxyError.value = ''
   if (!settingsOpen.value) return
   settingsOpen.value = false
   syncDialog()
 }
 
 function openSheet(id: string) {
+  proxyError.value = ''
   openSettings()
   sheetId.value = id
 }
@@ -406,7 +427,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
     <div v-if="sideHidden" class="sidestrip"><button class="showside" title="Show sidebar (Ctrl+B)" aria-label="Show sidebar" @click="hideSidebar(false)"><svg class="i" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg></button></div>
     <Sidebar v-if="!sideHidden" :width="sideWidthPx" @hide="hideSidebar(true)" @resize="resizeSidebar" :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" :update="update.state === 'available'" @update="openUpdates" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
     <main class="main">
-      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" :lock="lockChip" :split="!!split" @lock-menu="openLockMenu" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" @extensions="extensionMenu(current!.id)" @split-menu="openSplitMenu" @close-split="closeSplit" />
+      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" :lock="lockChip" :proxy="current.proxy" :split="!!split" @lock-menu="openLockMenu" @proxy-menu="openProxyMenu(current!.id)" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" @extensions="extensionMenu(current!.id)" @split-menu="openSplitMenu" @close-split="closeSplit" />
       <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" :update="update" :tab="settingsTab" @check="checkUpdate" @apply="applyUpdate" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" @shortcuts="openHelp" />
       <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
       <div v-else class="panel"><SplitDivider v-if="split" :ratio="split.ratio" @move="moveSplit" @end="endSplitDrag" /></div>
@@ -415,11 +436,13 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
       v-if="settingsOpen && sheetAccount"
       :account="sheetAccount"
       :accounts="accounts"
+      :proxy-error="proxyError"
       @policy="(v) => setPolicy(sheetAccount!.id, v)"
       @mute="(m) => mute(sheetAccount!.id, m)"
       @blur="(on) => setBlur(sheetAccount!.id, on)"
       @blur-part="(part, on) => setBlurPart(sheetAccount!.id, part, on)"
       @keep-deleted="(on) => setKeepDeleted(sheetAccount!.id, on)"
+      @proxy="(v) => setProxy(sheetAccount!.id, v)"
       @logout="logout(sheetAccount!.id)"
       @remove="removeAccount(sheetAccount!.id)"
       @done="sheetId = undefined"

@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { appRoot, dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadQuietWorkHours, loadSchedule, loadSplit, saveSchedule, saveSplit, saveQuietWorkHours, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, loadSidebarLayout, saveSidebarLayout, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setExtensions, setServiceEnabled, setZoom, type Account, type SplitState } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadProxyAuth, loadQuietWorkHours, loadSchedule, loadSplit, saveProxyAuth, saveSchedule, saveSplit, saveQuietWorkHours, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, loadSidebarLayout, saveSidebarLayout, orderedAccounts, saveDnd, saveSelected, setAccountProxy, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setExtensions, setServiceEnabled, setZoom, type Account, type SplitState } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -44,6 +44,7 @@ import { isHelpShortcut, isSwitcherShortcut, nextZoom, switchTarget, zoomKey, ty
 import { sidebarOrder } from './services'
 import { PARTS, partsOn, type Part } from '../preload/blur'
 import { onPartition, partitionKey, partitionOf } from './sharing'
+import { effectiveProxy, findProxyCredential, parseProxy, proxyLabel, proxyMenu, proxyRules, sameProxy, proxyHostOf } from './proxy'
 import { secondLaunch } from './singleinstance'
 import { clampSide, clampSplit, isSidebarShortcut, panelBounds as layoutBounds, splitBounds } from './layout'
 import { applyPendingRestore } from './backup'
@@ -328,7 +329,10 @@ function openPopup(a: Account, url: string): void {
   })
   popups.add(a.id, w)
   w.on('closed', () => popups.forget(w))
-  void wc.loadURL(url)
+  // A popup follows its account's session proxy too (D63).
+  void configureProxy(wc.session, proxyFor(a)).then(() => {
+    if (!wc.isDestroyed()) wc.loadURL(url)
+  })
 }
 
 /** Where a window.open from a service view goes (D8, D37): popup, same view, the browser, or nowhere. */
@@ -618,6 +622,31 @@ function hookDownloads(ses: Electron.Session): void {
   })
 }
 
+/** The proxy address for an account's partition (D63); a shared login follows its host. */
+const proxyFor = (a: Account): string | undefined => effectiveProxy(a, loadAccounts(dir))
+
+/** Puts a session's proxy in place before its first load; the direct mode clears a proxy removed in the sheet. */
+async function configureProxy(ses: Electron.Session, raw: string | undefined): Promise<void> {
+  const p = raw ? parseProxy(raw) : undefined
+  try {
+    if (p && p.ok) await ses.setProxy({ proxyRules: proxyRules(p.value) })
+    else await ses.setProxy({ mode: 'direct' })
+  } catch (err) {
+    appendEvent(dir, `proxy setup failed ${String((err as Error)?.message ?? err)}`)
+  }
+}
+
+// Proxy sign-in (D63): setProxy carries no credentials. Chromium reports the proxy host and port through the login
+// event; main answers with the sign-in saved for that endpoint. The password is only ever read and handed over, never logged.
+app.on('login', (event, _wc, _details, authInfo, callback) => {
+  if (!authInfo?.isProxy || !isUnlocked()) return
+  const cred = findProxyCredential(loadAccounts(dir), loadProxyAuth(dir), authInfo.host, authInfo.port)
+  if (!cred) return
+  event.preventDefault()
+  callback(cred.username, cred.password)
+  appendEvent(dir, `proxy sign-in used ${authInfo.host}:${authInfo.port}`)
+})
+
 function viewFor(a: Account): WebContentsView {
   let v = views.get(a.id)
   if (!v) {
@@ -651,8 +680,12 @@ function viewFor(a: Account): WebContentsView {
     // the QR screen versus the chat panel and record whether the login survived.
     if (a.serviceId === 'whatsapp') wc.once('did-finish-load', () => scheduleLoginCheck(2500))
     const start = preset?.startUrl ?? a.custom?.url ?? 'about:blank'
-    if (enabledFor(a, installedIds()).length) void applyExtensions(a, wc, mainWin).finally(() => !wc.isDestroyed() && wc.loadURL(start))
-    else wc.loadURL(start)
+    // The proxy (D63) is in place before anything loads; a shared login uses its host's proxy.
+    void configureProxy(ses, proxyFor(a)).then(() => {
+      if (wc.isDestroyed()) return
+      if (enabledFor(a, installedIds()).length) void applyExtensions(a, wc, mainWin).finally(() => !wc.isDestroyed() && wc.loadURL(start))
+      else wc.loadURL(start)
+    })
     views.set(a.id, v)
   }
   return v
@@ -878,20 +911,27 @@ function createWindow(): BrowserWindow {
   if (savedSplit && !restorableSplit) saveSplit(dir, undefined)
   // Accounts whose deleted-message keeper could not find WhatsApp's store (D47b); shown as a note in the sheet.
   const keeperDown = new Set<string>()
-  // Custom icons are cached files; the renderer gets them as data URLs.
-  const snapshot = () => ({
-    accounts: accounts.map((a) => {
-      const row0 = keeperDown.has(a.id) ? { ...a, keeperUnavailable: true } : a
-      const row = extErrors.has(a.id) ? { ...row0, extError: extErrors.get(a.id) } : row0
-      return a.custom ? { ...row, custom: { ...a.custom, icon: readIcon(dir, a.custom.icon) } } : row
-    }),
-    selectedId,
-    disabledServices: [...disabled],
-    sidebarCollapsed,
-    sidebarHidden,
-    sidebarWidth,
-    ...(splitB && attachedId ? { split: { b: splitB, ratio: splitRatio } } : {})
-  })
+  // Custom icons are cached files; the renderer gets them as data URLs. A shared login shows the host's proxy (D63).
+  const snapshot = () => {
+    const proxyAuth = loadProxyAuth(dir)
+    return {
+      accounts: accounts.map((a) => {
+        const row0 = keeperDown.has(a.id) ? { ...a, keeperUnavailable: true } : a
+        const row = extErrors.has(a.id) ? { ...row0, extError: extErrors.get(a.id) } : row0
+        const owner = proxyHostOf(a, accounts)
+        const proxy = owner?.proxy
+        const cred = proxy ? proxyAuth[partitionKey(owner!)] : undefined
+        const row1 = { ...row, ...(proxy ? { proxy } : {}), ...(cred ? { proxyUser: cred.username } : {}) }
+        return a.custom ? { ...row1, custom: { ...a.custom, icon: readIcon(dir, a.custom.icon) } } : row1
+      }),
+      selectedId,
+      disabledServices: [...disabled],
+      sidebarCollapsed,
+      sidebarHidden,
+      sidebarWidth,
+      ...(splitB && attachedId ? { split: { b: splitB, ratio: splitRatio } } : {})
+    }
+  }
   // Split view (D62): the top bar shows Close split and the renderer draws the divider from this state.
   const splitSnapshot = () => (splitB && attachedId ? { b: splitB, ratio: splitRatio } : undefined)
   onSplitChange = () => {
@@ -1453,6 +1493,7 @@ function createWindow(): BrowserWindow {
     if (!accounts.some((a) => a.id === id)) return snapshot()
     if (id === splitB) endSplit()
     popups.closeFor(id)
+    const removedKey = accounts.find((a) => a.id === id) ? partitionKey(accounts.find((a) => a.id === id)!) : undefined
     try {
       appendEvent(dir, `remove account ${id} (from the app)`)
       await removeAccount(dir, id, {
@@ -1475,6 +1516,7 @@ function createWindow(): BrowserWindow {
       console.error('remove account failed:', err)
     }
     accounts = orderedAccounts(loadAccounts(dir))
+    if (removedKey && !accounts.some((a) => partitionKey(a) === removedKey)) saveProxyAuth(dir, removedKey, undefined)
     delete counts[id]
     delete sleepState[id]
     blockState.forget(id)
@@ -1486,6 +1528,100 @@ function createWindow(): BrowserWindow {
   gipc.handle('accounts:zoom-reset', (_e: unknown, id: string) => {
     if (accounts.some((a) => a.id === id)) changeZoom(id, 0)
     return snapshot()
+  })
+  // Per-account proxy (D63): saved on the account, re-applied to its partition before the view reloads.
+  const reloadProxyViews = (a: Account) => {
+    for (const [id, v] of views) {
+      const held = accounts.find((x) => x.id === id)
+      if (!held || partitionKey(held) !== partitionKey(a) || v.webContents.isDestroyed()) continue
+      v.webContents.reload()
+    }
+  }
+  const applyProxyChange = async (a: Account, raw: string | undefined) => {
+    const ses = session.fromPartition(partitionOf(a))
+    await configureProxy(ses, raw)
+    await ses.closeAllConnections().catch(() => {})
+    reloadProxyViews(a)
+  }
+  /** Fetches the public address through the account's proxy session: proves the route end to end. */
+  const testProxy = async (a: Account): Promise<{ ip: string } | { error: string }> => {
+    const raw = effectiveProxy(a, accounts)
+    const p = raw ? parseProxy(raw) : undefined
+    if (!p || !p.ok) return { error: 'No proxy is set for this account.' }
+    const ses = session.fromPartition(partitionOf(a))
+    try {
+      await configureProxy(ses, raw)
+      const r = await ses.fetch('https://api.ipify.org', { signal: AbortSignal.timeout(15_000) })
+      if (!r.ok) return { error: `The proxy answered with HTTP ${r.status}.` }
+      const ip = (await r.text()).trim().slice(0, 80)
+      if (!ip) return { error: 'The proxy returned no address.' }
+      appendEvent(dir, `proxy test ${a.id} ${proxyLabel(p.value)} -> ${ip}`)
+      return { ip }
+    } catch (err) {
+      appendEvent(dir, `proxy test failed ${a.id} ${proxyLabel(p.value)}`)
+      return { error: String((err as Error)?.message ?? err) }
+    }
+  }
+  gipc.handle('accounts:proxy', async (_e: unknown, id: unknown, raw: unknown) => {
+    if (typeof id !== 'string' || typeof raw !== 'string') return snapshot()
+    const a = accounts.find((x) => x.id === id)
+    if (!a) return snapshot()
+    if (a.shareWith) return { error: 'This account follows the proxy of its shared login.' }
+    const key = partitionKey(a)
+    const text = raw.trim()
+    if (!text) {
+      accounts = orderedAccounts(setAccountProxy(dir, id, undefined))
+      saveProxyAuth(dir, key, undefined)
+      await applyProxyChange(a, undefined)
+      appendEvent(dir, `proxy off ${id}`)
+      return snapshot()
+    }
+    const p = parseProxy(text)
+    if (!p.ok) return { error: p.error }
+    const rules = proxyRules(p.value)
+    const entered = p.value.username ? { username: p.value.username, password: p.value.password ?? '' } : undefined
+    const previous = loadProxyAuth(dir)[key]
+    const old = a.proxy ? parseProxy(a.proxy) : undefined
+    // A new address without a sign-in keeps the old one only when it is still the same proxy.
+    const keep = entered ?? (previous && old?.ok && sameProxy(old.value, p.value) ? previous : undefined)
+    accounts = orderedAccounts(setAccountProxy(dir, id, rules))
+    saveProxyAuth(dir, key, keep)
+    await applyProxyChange(a, rules)
+    appendEvent(dir, `proxy set ${id} ${proxyLabel(p.value)}${keep ? ' with sign-in' : ''}`)
+    return snapshot()
+  })
+  gipc.handle('proxy:test', (e: { sender: { id: number } }, id: unknown) => {
+    const a = fromApp(e) && typeof id === 'string' ? accounts.find((x) => x.id === id) : undefined
+    return a ? testProxy(a) : { error: 'Unknown account.' }
+  })
+  // Proxy chip: a native menu (it draws above the page) with the address, a real connection test and Change.
+  gipc.on('proxy:menu', (e: { sender: { id: number } }, id: string) => {
+    const a = fromApp(e) && accounts.find((x) => x.id === id)
+    if (!a) return
+    const raw = effectiveProxy(a, accounts)
+    const p = raw ? parseProxy(raw) : undefined
+    const showTest = async () => {
+      const r = await testProxy(a)
+      if (!Notification.isSupported()) return
+      const n = 'ip' in r
+        ? new Notification({ title: 'Proxy connection works', body: `Your IP: ${r.ip}` })
+        : new Notification({ title: 'Proxy connection failed', body: r.error })
+      live.add(n)
+      n.on('close', () => live.delete(n))
+      n.show()
+    }
+    Menu.buildFromTemplate(
+      proxyMenu(p?.ok ? p.value : undefined).map((i) => {
+        if (i.separator) return { type: 'separator' as const }
+        const item: Electron.MenuItemConstructorOptions = { label: i.label, enabled: i.enabled }
+        if (i.action === 'test') item.click = () => void showTest()
+        if (i.action === 'change') item.click = () => {
+          showWindow()
+          if (isUnlocked() && !win.isDestroyed()) win.webContents.send('ui:sheet', a.id)
+        }
+        return item
+      })
+    ).popup({ window: win })
   })
   gipc.on('sidebar:hidden', (e: { sender: { id: number } }, h: unknown) => {
     if (!fromApp(e)) return

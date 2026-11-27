@@ -27,6 +27,10 @@ interface AccountRow {
   zoom?: number
   idlePolicy?: string
   shareWith?: string
+  /** Proxy address in effect for this account (D63), without credentials. A shared login shows its host's proxy. */
+  proxy?: string
+  /** Proxy sign-in user saved for this account's partition (D63); the password never leaves main. */
+  proxyUser?: string
   custom?: { name: string; url: string; icon?: string }
 }
 
@@ -175,6 +179,14 @@ interface Window {
     onZoom(cb: (s: Snapshot) => void): void
     /** Mute or unmute an account (D19). */
     mute(id: string, muted: boolean): Promise<Snapshot>
+    /** Per-account proxy (D63): empty value is Direct; an invalid address comes back as an error. */
+    setProxy(id: string, value: string): Promise<Snapshot | { error: string }>
+    /** Proxy chip: main shows the address, Test connection and Change (opens the account sheet). */
+    proxyMenu(id: string): void
+    /** Fetches the public IP through the account's proxy session. */
+    testProxy(id: string): Promise<{ ip: string } | { error: string }>
+    /** Main asks for the account sheet (the proxy menu's Change). */
+    onOpenSheet(cb: (id: string) => void): void
     /** Blur media in an account's view until hovered (D42, D43). */
     setBlur(id: string, on: boolean): Promise<Snapshot>
     /** One WhatsApp privacy blur part on or off (D48). */
