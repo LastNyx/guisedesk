@@ -22,6 +22,8 @@ import { ElectronChromeExtensions } from 'electron-chrome-extensions'
 import { downloadExtension } from 'electron-chrome-web-store'
 import { actionClick, createExtensionFetcher, enabledFor, extensionsDir, listInstalled, parseExtensionId, readManifest, toggled } from './extensions'
 import { appendEvent, LOGIN_COOKIES, lostLogins } from './events'
+import { parseWaPage, readDirSafe, storeHasData, waStorePath, whatsappLoggedIn, WA_PAGE_SCRIPT, type WaPage } from './whatsapp'
+import { writeAtomic } from './atomic'
 import { normalizeSchedule } from './schedule'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
@@ -517,6 +519,9 @@ function viewFor(a: Account): WebContentsView {
     v.webContents.on('dom-ready', () => v!.webContents.setZoomLevel(owner.get(v!.webContents.id)?.zoom ?? 0))
     // Extensions (D49) must be loaded before the page so their content scripts run on it.
     const wc = v.webContents
+    // WhatsApp keeps its login in IndexedDB, so the cookie check cannot see it (D50). Once the page is up, look for
+    // the QR screen versus the chat panel and record whether the login survived.
+    if (a.serviceId === 'whatsapp') wc.once('did-finish-load', () => scheduleLoginCheck(2500))
     const start = preset?.startUrl ?? a.custom?.url ?? 'about:blank'
     if (enabledFor(a, installedIds()).length) void applyExtensions(a, wc, mainWin).finally(() => !wc.isDestroyed() && wc.loadURL(start))
     else wc.loadURL(start)
@@ -1363,17 +1368,63 @@ function createWindow(): BrowserWindow {
 app.whenReady().then(() => {
   appendEvent(dir, `start v${version} electron ${process.versions.electron}`)
   createWindow()
-  setTimeout(() => void checkLogins(), 15_000)
+  scheduleLoginCheck(15_000)
 })
 
-/** Lost-login check (D50): compares each account's login cookie with the last start and logs any that vanished. */
+/** Reads WhatsApp's QR/side markers from a loaded view; undefined when the view is gone or did not answer. */
+async function whatsappPage(wc: Electron.WebContents): Promise<WaPage | undefined> {
+  try {
+    if (wc.isDestroyed()) return undefined
+    if (wc.isLoading()) {
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(t)
+          wc.removeListener('did-finish-load', done)
+          wc.removeListener('did-fail-load', done)
+          resolve()
+        }
+        const t = setTimeout(done, 5000)
+        wc.once('did-finish-load', done)
+        wc.once('did-fail-load', done)
+      })
+    }
+    // Give the page script time to replace the QR screen with the chat panel (debounce).
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    if (wc.isDestroyed()) return undefined
+    return parseWaPage(await wc.executeJavaScript(WA_PAGE_SCRIPT, true))
+  } catch {
+    return undefined
+  }
+}
+
+/** One login check at a time: a load and the start timer can both ask, and the file must not be written twice at once. */
+let loginCheckQueue: Promise<void> = Promise.resolve()
+function scheduleLoginCheck(delay: number): void {
+  setTimeout(() => {
+    loginCheckQueue = loginCheckQueue.then(checkLogins).catch(() => {})
+  }, delay).unref()
+}
+
+/**
+ * Lost-login check (D50): compares each account's login with the last start and logs any that vanished. Services
+ * use their login cookie; WhatsApp uses its IndexedDB store and, for a loaded view, the QR screen versus #side.
+ */
 async function checkLogins(): Promise<void> {
   try {
     const file = join(dir, 'logins.json')
     let prev: Record<string, boolean> = {}
     try { prev = JSON.parse(readFileSync(file, 'utf8')) } catch { /* first run */ }
+    const accounts = loadAccounts(dir)
     const now: Record<string, boolean> = {}
-    for (const a of loadAccounts(dir)) {
+    for (const a of accounts) {
+      if (a.serviceId === 'whatsapp') {
+        const store = storeHasData(readDirSafe(waStorePath(dir, partitionKey(a))))
+        const v = views.get(a.id)
+        const page = v && !v.webContents.isDestroyed() ? await whatsappPage(v.webContents) : undefined
+        const state = whatsappLoggedIn(store, page)
+        if (state !== undefined) now[a.id] = state
+        continue
+      }
       const rule = LOGIN_COOKIES[a.serviceId]
       if (!rule?.names.length) continue
       const ses = session.fromPartition(partitionOf(a))
@@ -1381,10 +1432,11 @@ async function checkLogins(): Promise<void> {
       now[a.id] = rule.names.every((n) => cookies.some((c) => c.name === n))
     }
     for (const id of lostLogins(prev, now)) {
-      const a = loadAccounts(dir).find((x) => x.id === id)
-      appendEvent(dir, `lost login ${a?.serviceId} "${a?.label}" (${id}): login cookie gone since last start`)
+      const a = accounts.find((x) => x.id === id)
+      const why = a?.serviceId === 'whatsapp' ? 'login data or session gone since last start' : 'login cookie gone since last start'
+      appendEvent(dir, `lost login ${a?.serviceId} "${a?.label}" (${id}): ${why}`)
     }
-    writeFileSync(file, JSON.stringify(now))
+    writeAtomic(file, JSON.stringify(now))
   } catch (err) {
     appendEvent(dir, `login check failed ${String(err)}`)
   }
