@@ -98,7 +98,7 @@ interface Window {
     /** Lock schedule (D51): work-hours and off-hours lock limits. setSchedule returns the saved (normalized) value. */
     schedule(): Promise<LockScheduleRow>
     setSchedule(s: LockScheduleRow): Promise<LockScheduleRow>
-    prefs(): Promise<{ idleLock: 5 | 10 | 30 | 'manual'; dnd: boolean; startOnLogin: boolean }>
+    prefs(): Promise<{ idleLock: 5 | 10 | 30 | 'manual'; dnd: boolean; quietWorkHours: boolean; startOnLogin: boolean }>
     setIdle(minutes: 5 | 10 | 30 | 'manual'): Promise<boolean>
     /** The lock countdown (D57): time left under the active rule, or null when only manual locking applies. */
     lockCountdown(): Promise<{ ms: number; rule: string } | null>
@@ -108,6 +108,8 @@ interface Window {
     setDnd(on: boolean): Promise<boolean>
     /** The tray checkbox changed Do Not Disturb. */
     onDnd(cb: (on: boolean) => void): void
+    /** Quiet outside work hours (D58), separate from the tray DND switch. */
+    setQuietWorkHours(on: boolean): Promise<boolean>
     setStartOnLogin(on: boolean): Promise<boolean>
     /** Needs the current PIN or password; main applies the setup rules to the new one. */
     changeLock(current: string, kind: 'pin' | 'password', secret: string, repeat: string): Promise<{ ok: true } | { error: string; waitUntil?: number }>

@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { appRoot, dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSchedule, saveSchedule, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, loadSidebarLayout, saveSidebarLayout, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setExtensions, setServiceEnabled, setZoom, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadQuietWorkHours, loadSchedule, saveSchedule, saveQuietWorkHours, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, loadSidebarLayout, saveSidebarLayout, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setExtensions, setServiceEnabled, setZoom, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -24,10 +24,10 @@ import { actionClick, checkExtensionUpdates, createExtensionFetcher, enabledFor,
 import { appendEvent, LOGIN_COOKIES, lostLogins } from './events'
 import { parseWaPage, readDirSafe, storeHasData, waStorePath, whatsappLoggedIn, WA_PAGE_SCRIPT, type WaPage } from './whatsapp'
 import { writeAtomic } from './atomic'
-import { normalizeSchedule } from './schedule'
+import { normalizeSchedule, type LockSchedule } from './schedule'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
-import { decideNotification } from './notify'
+import { decideNotification, quietOutsideWorkHours } from './notify'
 import { permissionAllowed } from './permissions'
 import { createHibernator, launchAsleep, limitMinutes } from './hibernate'
 import { createLock, isLockShortcut } from './lock'
@@ -96,6 +96,9 @@ let onCounts: () => void = () => {}
 let quitting = false
 // Global Do Not Disturb (D19), loaded from settings in createWindow.
 let dnd = false
+// Quiet outside work hours (D58): notifications are dropped outside the lock schedule's days/hours. Separate from dnd.
+let quietWork = false
+let quietSchedule: LockSchedule = normalizeSchedule(undefined)
 // Services switched off in Settings (D6): hidden from the sidebar, no notifications, sessions kept.
 let disabled = new Set<string>()
 // Which account a service view's webContents belongs to, for notification IPC.
@@ -610,7 +613,14 @@ function notify(win: BrowserWindow, a: Account, p: { title?: string; body?: stri
       body: String(p.body ?? '').slice(0, 1000),
       icon: p.icon
     },
-    { muted: a.muted, dnd, asleep: hib.isAsleep(a.id), locked: !isUnlocked(), disabled: disabled.has(a.serviceId) }
+    {
+      muted: a.muted,
+      dnd,
+      quiet: quietOutsideWorkHours(quietWork, quietSchedule, new Date()),
+      asleep: hib.isAsleep(a.id),
+      locked: !isUnlocked(),
+      disabled: disabled.has(a.serviceId)
+    }
   )
   if (d.action === 'drop' || !Notification.isSupported()) return
   // Linux has no subtitle: the service line goes under the body (frame 7).
@@ -718,6 +728,8 @@ function createWindow(): BrowserWindow {
     showWindow()
   })
   dnd = loadDnd(dir)
+  quietWork = loadQuietWorkHours(dir)
+  quietSchedule = loadSchedule(dir)
   // Tray Settings: raise the window, and open the screen only when unlocked (the renderer ignores it otherwise too).
   const openSettings = () => {
     showWindow()
@@ -899,7 +911,7 @@ function createWindow(): BrowserWindow {
   })
   // Downloads (D31): finished notice respects DND; locked hides the name; a click shows the file in its folder.
   onDownloadDone = (ok, path) => {
-    if (dnd || !Notification.isSupported()) return
+    if (dnd || quietOutsideWorkHours(quietWork, quietSchedule, new Date()) || !Notification.isSupported()) return
     const d = doneNotice({ ok, file: basename(path), locked: !isUnlocked() })
     const n = new Notification({ title: d.title, body: d.body })
     live.add(n)
@@ -978,7 +990,9 @@ function createWindow(): BrowserWindow {
   // Settings > Lock, Notifications, General. All behind the guard; the idle choice reaches the running timer.
   const autostartOpts = () => ({ env: process.env, home: homedir(), appPath: appRoot(app.getAppPath(), existsSync) })
   gipc.handle('prefs:get', (e: { sender: { id: number } }) =>
-    fromApp(e) ? { idleLock: loadIdleMinutes(dir), dnd, startOnLogin: isAutostart(autostartOpts()) } : undefined
+    fromApp(e)
+      ? { idleLock: loadIdleMinutes(dir), dnd, quietWorkHours: quietWork, startOnLogin: isAutostart(autostartOpts()) }
+      : undefined
   )
   // Lock schedule (D51): saved, then handed to the running timer.
   gipc.handle('prefs:schedule-get', (e: { sender: { id: number } }) => (fromApp(e) ? loadSchedule(dir) : undefined))
@@ -987,6 +1001,7 @@ function createWindow(): BrowserWindow {
     const s = normalizeSchedule(v)
     saveSchedule(dir, s)
     triggers.setSchedule(s)
+    quietSchedule = s
     appendEvent(dir, `lock schedule ${JSON.stringify(s)}`)
     return s
   })
@@ -1015,6 +1030,14 @@ function createWindow(): BrowserWindow {
     dnd = !!on
     saveDnd(dir, dnd)
     tray.setDnd(dnd)
+    return true
+  })
+  // Quiet outside work hours (D58): its own switch, next to DND; the tray DND state is unchanged.
+  gipc.handle('prefs:quiet-work-hours', (e: { sender: { id: number } }, on: unknown) => {
+    if (!fromApp(e)) return false
+    quietWork = !!on
+    saveQuietWorkHours(dir, quietWork)
+    appendEvent(dir, `quiet outside work hours ${quietWork ? 'on' : 'off'}`)
     return true
   })
   gipc.handle('prefs:autostart', (e: { sender: { id: number } }, on: unknown) => {

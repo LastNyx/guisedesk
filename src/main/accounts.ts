@@ -142,6 +142,19 @@ export function saveDnd(dir: string, dnd: boolean): void {
   writeAtomic(join(dir, 'settings.json'), JSON.stringify({ ...settings, dnd }, null, 2))
 }
 
+/** Quiet outside work hours (D58) lives in settings.json key quietWorkHours; off when missing. */
+export function loadQuietWorkHours(dir: string): boolean {
+  try {
+    return JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).quietWorkHours === true
+  } catch {
+    return false
+  }
+}
+
+export function saveQuietWorkHours(dir: string, on: boolean): void {
+  updateSettings(dir, { quietWorkHours: on })
+}
+
 /** Collapsed sidebar rail (D24) lives in settings.json key sidebarCollapsed; expanded when missing. */
 export function loadSidebarCollapsed(dir: string): boolean {
   try {

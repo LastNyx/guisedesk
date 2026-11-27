@@ -127,6 +127,7 @@ if (service) {
   lockMenu: () => ipcRenderer.send('lock:menu'),
   setDnd: (on: boolean) => ipcRenderer.invoke('prefs:dnd', on),
   onDnd: (cb: (on: boolean) => void) => ipcRenderer.on('prefs:dnd-changed', (_e, on) => cb(on)),
+  setQuietWorkHours: (on: boolean) => ipcRenderer.invoke('prefs:quiet-work-hours', on),
   setStartOnLogin: (on: boolean) => ipcRenderer.invoke('prefs:autostart', on),
   changeLock: (current: string, kind: string, secret: string, repeat: string) => ipcRenderer.invoke('lock:change', current, kind, secret, repeat),
   reset: (typed: string) => ipcRenderer.invoke('lock:reset', typed),
