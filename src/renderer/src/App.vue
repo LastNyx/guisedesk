@@ -41,6 +41,8 @@ const ready = ref(false)
 const resetting = ref(false)
 // Update status from main (D29); the sidebar pill and Settings > General show it. The pill opens General.
 const update = ref<UpdateInfo>({ state: 'checking' })
+// Lock countdown (D57): main pushes the time left under the active rule every few seconds; null = no chip.
+const lockChip = ref<{ ms: number; rule: string } | null>(null)
 const settingsTab = ref<string | undefined>()
 // An external link that matches several accounts (D40): main asks, we answer once. Main detaches the view while it is open.
 const choosing = ref<LinkChoice | undefined>()
@@ -56,6 +58,7 @@ async function loadAccounts() {
   counts.value = await window.guisedesk.unread()
   sleep.value = await window.guisedesk.sleep()
   update.value = await window.guisedesk.updateState()
+  lockChip.value = (await window.guisedesk.lockCountdown?.()) ?? null
   const b = await window.guisedesk.blockState?.()
   if (b) block.value = b
 }
@@ -71,6 +74,7 @@ function wipe() {
   disabled.value = []
   settingsOpen.value = false
   sheetId.value = undefined
+  lockChip.value = null
 }
 
 async function apply(info: LockInfo) {
@@ -99,6 +103,7 @@ onMounted(async () => {
   window.guisedesk.onLock((info) => void apply(info))
   window.guisedesk.onSleep((s) => (sleep.value = s))
   window.guisedesk.onUpdate((u) => (update.value = u))
+  window.guisedesk.onLockCountdown?.((c) => (lockChip.value = c))
   window.guisedesk.onZoom((s) => take(s))
   window.guisedesk.onBlock?.((s) => (block.value = s))
   window.guisedesk.onOpenSettingsTab?.((t) => {
@@ -196,6 +201,10 @@ function reload(id: string) {
 
 function lockNow() {
   window.guisedesk.lock()
+}
+
+function openLockMenu() {
+  window.guisedesk.lockMenu?.()
 }
 
 function hideSidebar(h: boolean) {
@@ -298,7 +307,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
     <div v-if="sideHidden" class="sidestrip"><button class="showside" title="Show sidebar (Ctrl+B)" aria-label="Show sidebar" @click="hideSidebar(false)"><svg class="i" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg></button></div>
     <Sidebar v-if="!sideHidden" :width="sideWidthPx" @hide="hideSidebar(true)" @resize="resizeSidebar" :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" :update="update.state === 'available'" @update="openUpdates" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
     <main class="main">
-      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" @extensions="extensionMenu(current!.id)" />
+      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" :lock="lockChip" @lock-menu="openLockMenu" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" @extensions="extensionMenu(current!.id)" />
       <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" :update="update" :tab="settingsTab" @check="checkUpdate" @apply="applyUpdate" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" />
       <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
       <div v-else class="panel"></div>

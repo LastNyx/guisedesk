@@ -12,8 +12,10 @@ const props = defineProps<{
   blocked?: number
   /** A dropped pop-up URL (D45): the "Pop-up blocked" chip; clicking it opens the URL anyway. */
   popup?: string
+  /** Lock countdown (D57): time left under the active idle/schedule rule; null or missing = no chip. */
+  lock?: { ms: number; rule: string } | null
 }>()
-const emit = defineEmits<{ reload: []; mute: [muted: boolean]; lock: []; sleep: []; settings: []; 'reset-zoom': []; 'open-popup': []; shield: []; extensions: [] }>()
+const emit = defineEmits<{ reload: []; mute: [muted: boolean]; lock: []; sleep: []; settings: []; 'reset-zoom': []; 'open-popup': []; shield: []; extensions: []; 'lock-menu': [] }>()
 
 const service = computed(() => presetFor(props.account.serviceId)?.name ?? props.account.custom?.name ?? props.account.serviceId)
 // One chip: asleep, then muted, then always on (live chat or an always-on override); a live feed account has none.
@@ -22,12 +24,19 @@ const chip = computed(() => {
   if (props.account.muted) return 'Muted'
   return limitMinutes(props.account) === null ? 'Always on' : ''
 })
+// Whole minutes left, rounded up, so the chip never says "0 min" while the lock is still ahead.
+const lockText = computed(() => {
+  const ms = props.lock?.ms
+  if (ms === undefined || ms === null) return ''
+  return `Locks in ${Math.max(1, Math.ceil(ms / 60_000))} min`
+})
 </script>
 
 <template>
   <div class="top">
     <div class="title">{{ account.label }} <span>&middot; {{ service }}</span></div>
     <span v-if="chip" class="chip" :class="{ live: chip === 'Always on' }">{{ chip }}</span>
+    <button v-if="lockText" class="chip locks" :title="lock?.rule" @click="emit('lock-menu')">{{ lockText }}</button>
     <button v-if="account.zoom" class="chip zoom" title="Reset zoom" @click="emit('reset-zoom')">{{ zoomPercent(account.zoom) }}%</button>
     <button v-if="adsOn && !asleep" class="chip shield" title="Ads and trackers blocked" aria-label="Ads and trackers blocked" @click="emit('shield')"><svg class="i" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>{{ blocked ?? 0 }}</button>
     <button v-if="popup && !asleep" class="chip popup" :title="'Open anyway: ' + popup" @click="emit('open-popup')">Pop-up blocked</button>

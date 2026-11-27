@@ -808,7 +808,45 @@ function createWindow(): BrowserWindow {
   // The setting is read at start; Settings changes it through applyIdle (setMinutes).
   const triggers = wireTriggers({ lock, power: powerMonitor, now: Date.now, minutes: loadIdleMinutes(dir), schedule: loadSchedule(dir) })
   touchIdle = triggers.touch
-  setInterval(triggers.check, 10_000).unref()
+  // Lock countdown (D57): the top bar shows the time left under the current rule, and the chip opens a native menu.
+  const lockCountdown = (): { ms: number; rule: string } | null => {
+    if (!isUnlocked()) return null
+    const ms = triggers.remainingMs()
+    const rule = triggers.rule()
+    return ms === null || !rule ? null : { ms, rule }
+  }
+  const pushCountdown = () => {
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('lock:countdown', lockCountdown())
+  }
+  const addFifteen = () => {
+    if (!isUnlocked()) return
+    triggers.extend(15 * 60_000)
+    appendEvent(dir, 'lock extended 15 min')
+    pushCountdown()
+  }
+  let warnedDeadline = 0
+  const warnOneMinute = () => {
+    if (!Notification.isSupported()) return
+    const n = new Notification({ title: 'GuiseDesk locks in 1 minute', body: 'Click to add 15 minutes.' })
+    live.add(n)
+    n.on('click', addFifteen)
+    n.on('close', () => live.delete(n))
+    n.show()
+  }
+  setInterval(() => {
+    if (isUnlocked()) {
+      const ms = triggers.remainingMs()
+      if (ms !== null && ms > 0 && ms <= 60_000) {
+        const deadline = Date.now() + ms
+        if (deadline !== warnedDeadline) {
+          warnedDeadline = deadline
+          warnOneMinute()
+        }
+      }
+    }
+    triggers.check()
+    pushCountdown()
+  }, 10_000).unref()
   ipcMain.removeAllListeners('idle:touch')
   ipcMain.removeHandler('blur:state')
   ipcMain.handle('blur:state', (e) => blurState(owner.get(e.sender.id)))
@@ -951,6 +989,25 @@ function createWindow(): BrowserWindow {
     triggers.setSchedule(s)
     appendEvent(dir, `lock schedule ${JSON.stringify(s)}`)
     return s
+  })
+  // Lock countdown (D57): the chip's current state, and the native menu it opens.
+  gipc.handle('lock:countdown', (e: { sender: { id: number } }) => (fromApp(e) ? lockCountdown() : undefined))
+  gipc.on('lock:menu', (e: { sender: { id: number } }) => {
+    if (!fromApp(e)) return
+    const c = lockCountdown()
+    Menu.buildFromTemplate([
+      ...(c ? [{ label: c.rule, enabled: false }] : []),
+      { type: 'separator' as const },
+      { label: 'Add 15 minutes', enabled: !!c, click: addFifteen },
+      { label: 'Lock now', click: () => lock.lock() },
+      {
+        label: 'Lock settings...',
+        click: () => {
+          showWindow()
+          if (isUnlocked() && !win.isDestroyed()) win.webContents.send('settings:open-tab', 'Lock')
+        }
+      }
+    ]).popup({ window: win })
   })
   gipc.handle('prefs:idle', (e: { sender: { id: number } }, v: unknown) => fromApp(e) && applyIdle(dir, v, triggers))
   gipc.handle('prefs:dnd', (e: { sender: { id: number } }, on: unknown) => {

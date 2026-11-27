@@ -121,6 +121,10 @@ if (service) {
   setIdle: (minutes: unknown) => ipcRenderer.invoke('prefs:idle', minutes),
   schedule: () => ipcRenderer.invoke('prefs:schedule-get'),
   setSchedule: (s: unknown) => ipcRenderer.invoke('prefs:schedule', s),
+  lockCountdown: () => ipcRenderer.invoke('lock:countdown'),
+  onLockCountdown: (cb: (c: { ms: number; rule: string } | null) => void) =>
+    ipcRenderer.on('lock:countdown', (_e, c) => cb(c)),
+  lockMenu: () => ipcRenderer.send('lock:menu'),
   setDnd: (on: boolean) => ipcRenderer.invoke('prefs:dnd', on),
   onDnd: (cb: (on: boolean) => void) => ipcRenderer.on('prefs:dnd-changed', (_e, on) => cb(on)),
   setStartOnLogin: (on: boolean) => ipcRenderer.invoke('prefs:autostart', on),

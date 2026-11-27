@@ -100,6 +100,11 @@ interface Window {
     setSchedule(s: LockScheduleRow): Promise<LockScheduleRow>
     prefs(): Promise<{ idleLock: 5 | 10 | 30 | 'manual'; dnd: boolean; startOnLogin: boolean }>
     setIdle(minutes: 5 | 10 | 30 | 'manual'): Promise<boolean>
+    /** The lock countdown (D57): time left under the active rule, or null when only manual locking applies. */
+    lockCountdown(): Promise<{ ms: number; rule: string } | null>
+    onLockCountdown(cb: (c: { ms: number; rule: string } | null) => void): void
+    /** The countdown chip: main shows a native menu (rule, add 15 minutes, lock now, lock settings). */
+    lockMenu(): void
     setDnd(on: boolean): Promise<boolean>
     /** The tray checkbox changed Do Not Disturb. */
     onDnd(cb: (on: boolean) => void): void
