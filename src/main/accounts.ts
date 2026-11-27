@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeAtomic, type Fs } from './atomic'
 import { PARTS, type Part } from '../preload/blur'
+import { clampSplit } from './layout'
 import { checkShare, validateNewAccount, type NewAccountInput } from './validate'
+import type { ProxyCredential } from './proxy'
 
 export interface Account {
   id: string
@@ -19,10 +21,14 @@ export interface Account {
   blurParts?: Partial<Record<Part, boolean>>
   /** Keep the text of messages deleted for everyone (WhatsApp only, D47b). */
   keepDeleted?: boolean
+  /** Chrome extension ids turned on for this account (D49). */
+  extensions?: string[]
   /** Chromium zoom level (D32); missing = 0 (100%). */
   zoom?: number
   /** Host account id whose session partition this account uses (D36). */
   shareWith?: string
+  /** Proxy address for this account's partition (D63), without credentials: `socks5://host:1080`. */
+  proxy?: string
   custom?: { name: string; url: string; hosts: string[]; icon?: string }
 }
 
@@ -114,6 +120,48 @@ export function setKeepDeleted(dir: string, id: string, keepDeleted: boolean): A
   return accounts
 }
 
+/** Sets one account's Chrome extension list (D49) and returns the saved list. */
+export function setExtensions(dir: string, id: string, extensions: string[]): Account[] {
+  const accounts = loadAccounts(dir).map((a) => (a.id === id ? { ...a, extensions } : a))
+  saveAccounts(dir, accounts)
+  return accounts
+}
+
+/** Sets one account's proxy address (D63); undefined removes it (Direct). Returns the saved list. */
+export function setAccountProxy(dir: string, id: string, proxy: string | undefined): Account[] {
+  const accounts = loadAccounts(dir).map((a) => {
+    if (a.id !== id) return a
+    const { proxy: _old, ...rest } = a
+    return proxy ? { ...rest, proxy } : rest
+  })
+  saveAccounts(dir, accounts)
+  return accounts
+}
+
+/** Proxy sign-in per partition (D63) in settings.json key proxyAuth; passwords never go to accounts.json or logs. */
+export function loadProxyAuth(dir: string): Record<string, ProxyCredential> {
+  try {
+    const v = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).proxyAuth
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+    const out: Record<string, ProxyCredential> = {}
+    for (const [key, x] of Object.entries(v as Record<string, unknown>)) {
+      const c = x as { username?: unknown; password?: unknown } | null
+      if (c && typeof c.username === 'string' && typeof c.password === 'string') out[key] = { username: c.username, password: c.password }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** Saves or removes the proxy sign-in for one partition (D63). */
+export function saveProxyAuth(dir: string, key: string, auth: ProxyCredential | undefined): void {
+  const all = loadProxyAuth(dir)
+  if (auth) all[key] = auth
+  else delete all[key]
+  updateSettings(dir, { proxyAuth: Object.keys(all).length ? all : undefined })
+}
+
 /** Global Do Not Disturb (D19) lives in settings.json (key dnd); off when missing. */
 export function loadDnd(dir: string): boolean {
   try {
@@ -133,6 +181,19 @@ export function saveDnd(dir: string, dnd: boolean): void {
   writeAtomic(join(dir, 'settings.json'), JSON.stringify({ ...settings, dnd }, null, 2))
 }
 
+/** Quiet outside work hours (D58) lives in settings.json key quietWorkHours; off when missing. */
+export function loadQuietWorkHours(dir: string): boolean {
+  try {
+    return JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).quietWorkHours === true
+  } catch {
+    return false
+  }
+}
+
+export function saveQuietWorkHours(dir: string, on: boolean): void {
+  updateSettings(dir, { quietWorkHours: on })
+}
+
 /** Collapsed sidebar rail (D24) lives in settings.json key sidebarCollapsed; expanded when missing. */
 export function loadSidebarCollapsed(dir: string): boolean {
   try {
@@ -140,6 +201,20 @@ export function loadSidebarCollapsed(dir: string): boolean {
   } catch {
     return false
   }
+}
+
+/** Sidebar width and hidden state (D52) in settings.json: sidebarWidth (px), sidebarHidden. */
+export function loadSidebarLayout(dir: string): { width: number; hidden: boolean } {
+  try {
+    const s = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))
+    return { width: typeof s.sidebarWidth === 'number' ? s.sidebarWidth : 232, hidden: s.sidebarHidden === true }
+  } catch {
+    return { width: 232, hidden: false }
+  }
+}
+
+export function saveSidebarLayout(dir: string, v: { width: number; hidden: boolean }): void {
+  updateSettings(dir, { sidebarWidth: v.width, sidebarHidden: v.hidden })
 }
 
 export function saveSidebarCollapsed(dir: string, sidebarCollapsed: boolean): void {
@@ -152,6 +227,27 @@ export function saveSidebarCollapsed(dir: string, sidebarCollapsed: boolean): vo
   writeAtomic(join(dir, 'settings.json'), JSON.stringify({ ...settings, sidebarCollapsed }, null, 2))
 }
 
+/** Split view (D62) in settings.json key split: the two account ids and the divider ratio. */
+export interface SplitState {
+  a: string
+  b: string
+  ratio: number
+}
+
+export function loadSplit(dir: string): SplitState | undefined {
+  try {
+    const v = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).split
+    if (!v || typeof v.a !== 'string' || typeof v.b !== 'string' || !v.a || !v.b || v.a === v.b) return undefined
+    return { a: v.a, b: v.b, ratio: clampSplit(v.ratio) }
+  } catch {
+    return undefined
+  }
+}
+
+export function saveSplit(dir: string, split: SplitState | undefined): void {
+  updateSettings(dir, { split })
+}
+
 /** Idle lock minutes (D15, D17) in settings.json key idleLock: 5, 10, 30 or 'manual'; 10 when missing or invalid. */
 export function loadIdleMinutes(dir: string): 5 | 10 | 30 | 'manual' {
   try {
@@ -160,6 +256,21 @@ export function loadIdleMinutes(dir: string): 5 | 10 | 30 | 'manual' {
   } catch {
     return 10
   }
+}
+
+import { normalizeSchedule, type LockSchedule } from './schedule'
+
+/** Lock schedule (D51) in settings.json key lockSchedule; off with defaults when missing. */
+export function loadSchedule(dir: string): LockSchedule {
+  try {
+    return normalizeSchedule(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).lockSchedule)
+  } catch {
+    return normalizeSchedule(undefined)
+  }
+}
+
+export function saveSchedule(dir: string, s: LockSchedule): void {
+  updateSettings(dir, { lockSchedule: s })
 }
 
 export function saveIdleMinutes(dir: string, minutes: 5 | 10 | 30 | 'manual'): void {

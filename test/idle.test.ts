@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { loadIdleMinutes } from '../src/main/accounts'
-import { createIdle } from '../src/main/idle'
+import { createIdle, describeIdleRule } from '../src/main/idle'
 import { createLock } from '../src/main/lock'
 import { wireTriggers } from '../src/main/triggers'
 
@@ -111,5 +111,84 @@ describe('lock triggers', () => {
     expect(await lock.unlock('123456')).toEqual({ result: 'ok' })
     t.check()
     expect(lock.state()).toBe('unlocked')
+  })
+})
+
+describe('lock countdown and Add 15 minutes (D57)', () => {
+  const MIN = 60_000
+  const monday10 = new Date(2026, 0, 5, 10, 0).getTime()
+  const sched = {
+    on: true,
+    days: [1, 2, 3, 4, 5],
+    start: '08:00',
+    end: '17:00',
+    workMinutes: 15,
+    offMinutes: 480,
+    count: 'unlock' as const
+  }
+
+  it('no rule for Manual and no schedule: nothing to count down', () => {
+    const idle = createIdle({ now: () => monday10, minutes: 'manual', onIdle: () => {} })
+    expect(idle.remainingMs()).toBeNull()
+    expect(idle.rule()).toBeNull()
+    const scheduled = createIdle({ now: () => monday10, minutes: 'manual', onIdle: () => {}, schedule: { ...sched, on: false } })
+    expect(scheduled.remainingMs()).toBeNull()
+  })
+
+  it('counts the work-hours schedule from the unlock and names the rule', () => {
+    const clock = { t: monday10 }
+    const idle = createIdle({ now: () => clock.t, minutes: 'manual', onIdle: () => {}, schedule: sched })
+    expect(idle.remainingMs()).toBe(15 * MIN)
+    expect(idle.rule()).toBe('Work hours: 15 min after unlock')
+    clock.t += 3 * MIN
+    expect(idle.remainingMs()).toBe(12 * MIN)
+    clock.t += 12 * MIN
+    expect(idle.remainingMs()).toBe(0)
+  })
+
+  it('extend(ms) pushes the current period back and is dropped by the next unlock', () => {
+    const clock = { t: monday10 }
+    const idle = createIdle({ now: () => clock.t, minutes: 'manual', onIdle: () => {}, schedule: sched })
+    clock.t += 3 * MIN
+    idle.extend(15 * MIN)
+    expect(idle.remainingMs()).toBe(27 * MIN)
+    clock.t += 10 * MIN
+    expect(idle.remainingMs()).toBe(17 * MIN)
+    idle.unlocked()
+    expect(idle.remainingMs()).toBe(15 * MIN)
+  })
+
+  it('uses the off-hours limit outside work hours', () => {
+    const clock = { t: new Date(2026, 0, 5, 20, 0).getTime() }
+    const idle = createIdle({ now: () => clock.t, minutes: 'manual', onIdle: () => {}, schedule: sched })
+    expect(idle.remainingMs()).toBe(480 * MIN)
+    expect(idle.rule()).toBe('Off hours: 8 h after unlock')
+  })
+
+  it('the idle choice counts from the last input, and a touch starts a fresh unextended period', () => {
+    const clock = { t: 0 }
+    const idle = createIdle({ now: () => clock.t, minutes: 5, onIdle: () => {} })
+    expect(idle.rule()).toBe('Idle: 5 min without use')
+    clock.t += 4 * MIN
+    expect(idle.remainingMs()).toBe(MIN)
+    idle.extend(15 * MIN)
+    expect(idle.remainingMs()).toBe(16 * MIN)
+    idle.touch()
+    expect(idle.remainingMs()).toBe(5 * MIN)
+  })
+
+  it('ignores a bad extend value', () => {
+    const clock = { t: 0 }
+    const idle = createIdle({ now: () => clock.t, minutes: 5, onIdle: () => {} })
+    idle.extend(0)
+    idle.extend(-5)
+    idle.extend(Number.NaN)
+    expect(idle.remainingMs()).toBe(5 * MIN)
+  })
+
+  it('describeIdleRule is pure and picks the schedule branch over the idle choice', () => {
+    expect(describeIdleRule(10, sched, new Date(monday10))).toEqual({ rule: 'Work hours: 15 min after unlock', count: 'unlock' })
+    expect(describeIdleRule(10, { ...sched, count: 'idle' }, new Date(monday10))!.rule).toBe('Work hours: 15 min without use')
+    expect(describeIdleRule('manual', undefined, new Date(monday10))).toBeNull()
   })
 })

@@ -40,8 +40,9 @@ describe('hash', () => {
 })
 
 describe('setup rules', () => {
-  it('rejects a 5-digit PIN, non-digits, a mismatched repeat; accepts 6 digits and an 8-char password', () => {
-    expect(validateNewSecret('pin', '12345', '12345')).toMatchObject({ ok: false })
+  it('rejects a 3-digit PIN, non-digits, a mismatched repeat; accepts 4 digits and an 8-char password', () => {
+    expect(validateNewSecret('pin', '123', '123')).toMatchObject({ ok: false })
+    expect(validateNewSecret('pin', '1234', '1234')).toEqual({ ok: true })
     expect(validateNewSecret('pin', '12345a', '12345a')).toMatchObject({ ok: false })
     expect(validateNewSecret('pin', '123456', '123457')).toEqual({ ok: false, error: 'The two entries do not match' })
     expect(validateNewSecret('pin', '123456', '123456')).toEqual({ ok: true })
@@ -52,7 +53,7 @@ describe('setup rules', () => {
   it('lock.setup refuses a 5-digit PIN and a mismatch and writes nothing', async () => {
     const { lock, dir } = await fresh()
     expect(lock.state()).toBe('setup')
-    expect(await lock.setup('pin', '12345', '12345')).toHaveProperty('error')
+    expect(await lock.setup('pin', '123', '123')).toHaveProperty('error')
     expect(await lock.setup('pin', '123456', '654321')).toHaveProperty('error')
     expect(lock.state()).toBe('setup')
     expect(() => readFileSync(join(dir, 'lock.json'))).toThrow()

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { version } from '../../../package.json'
+import BackupDialog from './BackupDialog.vue'
 
 const props = defineProps<{ update: UpdateInfo }>()
-const emit = defineEmits<{ check: []; apply: [] }>()
+const emit = defineEmits<{ check: []; apply: []; shortcuts: [] }>()
 const status = computed(() => {
   const u = props.update
   if (u.state === 'available') return `${u.latest} available`
@@ -11,6 +12,13 @@ const status = computed(() => {
   if (u.state === 'disabled') return 'Not available in this install'
   if (u.state === 'checking') return 'Checking...'
   return 'Up to date'
+})
+// Custom build (D55): local commits on top of a release tag; the updater would drop them, so it is off.
+const custom = computed(() => props.update.custom)
+const customText = computed(() => {
+  const c = custom.value
+  if (!c) return ''
+  return `Custom build (${c.count} change${c.count === 1 ? '' : 's'} on top of ${c.tag})`
 })
 
 const on = ref(false)
@@ -48,6 +56,8 @@ async function toggle() {
   const next = !on.value
   if (await window.guisedesk.setStartOnLogin(next)) on.value = next
 }
+
+const backupMode = ref<'export' | 'restore' | undefined>()
 </script>
 
 <template>
@@ -82,16 +92,38 @@ async function toggle() {
       </div>
     </div>
     <div class="card">
-      <h4>Updates</h4>
+      <h4>Keyboard</h4>
       <div class="sr">
-        <span class="t"><b>GuiseDesk v{{ version }}</b><span>{{ status }}</span></span>
-        <button class="btn" :disabled="update.state === 'checking'" @click="emit('check')">Check for updates</button>
-        <button v-if="update.state === 'available'" class="btn pri" @click="emit('apply')">Update and restart</button>
+        <span class="t"><b>Keyboard shortcuts</b><span>See every shortcut the app has.</span></span>
+        <button class="lnk" @click="emit('shortcuts')">Show shortcuts</button>
       </div>
     </div>
+    <div class="card">
+      <h4>Backup</h4>
+      <div class="sr">
+        <span class="t"><b>Export backup</b><span>One encrypted file with accounts, settings, lock and extensions. You can include saved logins.</span></span>
+        <button class="btn" @click="backupMode = 'export'">Export backup...</button>
+      </div>
+      <div class="sr">
+        <span class="t"><b>Restore backup</b><span>Open a backup on the next start. It replaces all current data.</span></span>
+        <button class="btn" @click="backupMode = 'restore'">Restore backup...</button>
+      </div>
+    </div>
+    <div class="card">
+      <h4>Updates</h4>
+      <div class="sr">
+        <span class="t"><b>GuiseDesk v{{ version }}</b><span v-if="custom" class="custom">{{ customText }}</span><span>{{ status }}</span></span>
+        <button class="btn" :disabled="update.state === 'checking'" @click="emit('check')">Check for updates</button>
+        <span v-if="custom" class="hint">Updates are off for a custom build</span>
+        <button v-else-if="update.state === 'available'" class="btn pri" @click="emit('apply')">Update and restart</button>
+      </div>
+    </div>
+    <BackupDialog v-if="backupMode" :mode="backupMode" @close="backupMode = undefined" />
   </div>
 </template>
 
 <style scoped>
 .path { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lnk { flex: none; height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid #ffffff18; background: transparent; color: var(--text); font-size: 12.5px; font-weight: 700; }
+.lnk:hover { background: var(--raise); }
 </style>

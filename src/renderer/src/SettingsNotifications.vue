@@ -5,10 +5,13 @@ import { initials } from './initials'
 const props = defineProps<{ accounts: AccountRow[] }>()
 const emit = defineEmits<{ unmute: [id: string] }>()
 const dnd = ref(false)
+const quiet = ref(false)
 const muted = computed(() => props.accounts.filter((a) => a.muted))
 
 onMounted(async () => {
-  dnd.value = (await window.guisedesk.prefs()).dnd
+  const p = await window.guisedesk.prefs()
+  dnd.value = p.dnd
+  quiet.value = !!p.quietWorkHours
   // The tray checkbox changes the same setting.
   window.guisedesk.onDnd((on) => (dnd.value = on))
 })
@@ -16,6 +19,11 @@ onMounted(async () => {
 async function toggle() {
   const on = !dnd.value
   if (await window.guisedesk.setDnd(on)) dnd.value = on
+}
+
+async function toggleQuiet() {
+  const on = !quiet.value
+  if (await window.guisedesk.setQuietWorkHours(on)) quiet.value = on
 }
 </script>
 
@@ -26,6 +34,10 @@ async function toggle() {
       <div class="sr">
         <span class="t"><b>Do Not Disturb</b><span>No pop-ups from any account. Badges keep counting. Also in the tray menu.</span></span>
         <button class="tg" :class="{ on: dnd }" role="switch" :aria-checked="dnd" aria-label="Do Not Disturb" @click="toggle"></button>
+      </div>
+      <div class="sr">
+        <span class="t"><b>Quiet outside work hours</b><span>Uses the work days and hours from Settings &gt; Lock. Notifications are dropped outside them.</span></span>
+        <button class="tg" :class="{ on: quiet }" role="switch" :aria-checked="quiet" aria-label="Quiet outside work hours" @click="toggleQuiet"></button>
       </div>
     </div>
     <div class="card">

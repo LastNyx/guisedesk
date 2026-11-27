@@ -134,7 +134,7 @@ describe('Settings in the app', () => {
   it('the gear and the tray open Settings in the main area, detach the view, and Back restores it', async () => {
     const w = await open()
     expect(w.find('.tabs .sel').text()).toBe('Services')
-    expect(w.findAll('.tabs span').map((s) => s.text())).toEqual(['Services', 'Lock', 'Notifications', 'General'])
+    expect(w.findAll('.tabs span').map((s) => s.text())).toEqual(['Services', 'Lock', 'Notifications', 'Extensions', 'General'])
     expect(w.find('aside.side').exists()).toBe(true)
     expect(bridge.dialog).toHaveBeenLastCalledWith(true)
     await w.find('.top .ib').trigger('click')

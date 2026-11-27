@@ -20,16 +20,77 @@ interface AccountRow {
   blurMedia?: boolean
   blurParts?: Partial<Record<'messages' | 'previews' | 'avatars' | 'names', boolean>>
   keepDeleted?: boolean
+  /** Chrome extension ids on for this account (D49). */
+  extensions?: string[]
+  extError?: string
   keeperUnavailable?: boolean
   zoom?: number
   idlePolicy?: string
   shareWith?: string
+  /** Proxy address in effect for this account (D63), without credentials. A shared login shows its host's proxy. */
+  proxy?: string
+  /** Proxy sign-in user saved for this account's partition (D63); the password never leaves main. */
+  proxyUser?: string
   custom?: { name: string; url: string; icon?: string }
 }
 
 interface BlockSnapshot {
   ads: boolean
   accounts: Record<string, { blocked: number; popup?: string; total?: number; popups?: number; hosts?: Record<string, number> }>
+}
+
+interface LockScheduleRow {
+  on: boolean
+  days: number[]
+  start: string
+  end: string
+  workMinutes: number
+  offMinutes: number
+  count: 'unlock' | 'idle'
+}
+
+interface ExtensionRow {
+  id: string
+  name: string
+  version: string
+  /** Last update or install date (YYYY-MM-DD), shown in Settings > Extensions (D56). */
+  updated?: string
+}
+
+interface ExtensionUpdateResult {
+  checked: number
+  updated: { id: string; version: string }[]
+}
+
+/** What an exported backup holds (D61). The restore dialog shows these details before replacing anything. */
+interface BackupManifest {
+  app: 'guisedesk'
+  format: number
+  created: string
+  version: string
+  includeLogins: boolean
+  accounts: number
+  settings: boolean
+  lock: boolean
+  extensions: string[]
+  files: number
+  bytes: number
+}
+
+/** One stored notification (D64). Locked items have a generic title and no body. */
+interface InboxItem {
+  id: string
+  accountId: string
+  title: string
+  body: string
+  time: number
+  read: boolean
+}
+
+interface InboxSnapshot {
+  items: InboxItem[]
+  /** Unread items excluding muted accounts. */
+  unread: number
 }
 
 interface Snapshot {
@@ -39,6 +100,10 @@ interface Snapshot {
   disabledServices: string[]
   /** Sidebar shown as the 64px rail (D24). */
   sidebarCollapsed?: boolean
+  sidebarHidden?: boolean
+  sidebarWidth?: number
+  /** Split view (D62): the second account and the divider position. Missing means no split. */
+  split?: { b: string; ratio: number }
 }
 
 interface LockInfo {
@@ -53,6 +118,8 @@ interface UpdateInfo {
   state: 'checking' | 'disabled' | 'none' | 'available' | 'error'
   latest?: string
   message?: string
+  /** Local commits on top of a release tag (D55): updates are off for this build. */
+  custom?: { tag: string; count: number }
 }
 
 interface Window {
@@ -65,11 +132,21 @@ interface Window {
     setupLock(kind: 'pin' | 'password', secret: string, repeat: string): Promise<{ ok: true } | { error: string }>
     lock(): void
     /** Settings that act at once: idle lock minutes, Do Not Disturb, start on login (autostart entry present). */
-    prefs(): Promise<{ idleLock: 5 | 10 | 30 | 'manual'; dnd: boolean; startOnLogin: boolean }>
+    /** Lock schedule (D51): work-hours and off-hours lock limits. setSchedule returns the saved (normalized) value. */
+    schedule(): Promise<LockScheduleRow>
+    setSchedule(s: LockScheduleRow): Promise<LockScheduleRow>
+    prefs(): Promise<{ idleLock: 5 | 10 | 30 | 'manual'; dnd: boolean; quietWorkHours: boolean; startOnLogin: boolean }>
     setIdle(minutes: 5 | 10 | 30 | 'manual'): Promise<boolean>
+    /** The lock countdown (D57): time left under the active rule, or null when only manual locking applies. */
+    lockCountdown(): Promise<{ ms: number; rule: string } | null>
+    onLockCountdown(cb: (c: { ms: number; rule: string } | null) => void): void
+    /** The countdown chip: main shows a native menu (rule, add 15 minutes, lock now, lock settings). */
+    lockMenu(): void
     setDnd(on: boolean): Promise<boolean>
     /** The tray checkbox changed Do Not Disturb. */
     onDnd(cb: (on: boolean) => void): void
+    /** Quiet outside work hours (D58), separate from the tray DND switch. */
+    setQuietWorkHours(on: boolean): Promise<boolean>
     setStartOnLogin(on: boolean): Promise<boolean>
     /** Needs the current PIN or password; main applies the setup rules to the new one. */
     changeLock(current: string, kind: 'pin' | 'password', secret: string, repeat: string): Promise<{ ok: true } | { error: string; waitUntil?: number }>
@@ -78,6 +155,12 @@ interface Window {
     state(): Promise<Snapshot>
     unread(): Promise<Record<string, number>>
     onUnread(cb: (counts: Record<string, number>) => void): void
+    /** Notifications inbox (D64): newest first, kept in main; muted accounts are kept but not counted. */
+    inbox(): Promise<InboxSnapshot>
+    inboxRead(id: string): Promise<InboxSnapshot>
+    inboxReadAll(): Promise<InboxSnapshot>
+    inboxClear(): Promise<InboxSnapshot>
+    onInbox(cb: (s: InboxSnapshot) => void): void
     select(id: string): void
     sleep(): Promise<Record<string, { minutes: number; waking: boolean }>>
     onSleep(cb: (s: Record<string, { minutes: number; waking: boolean }>) => void): void
@@ -87,8 +170,22 @@ interface Window {
     setSidebar(collapsed: boolean): void
     /** Main changed the sidebar (Ctrl+B). */
     onSidebar(cb: (collapsed: boolean) => void): void
+    /** Hide the sidebar completely, or set its full width by dragging (D52). Main resizes the page and pushes the layout. */
+    setSidebarHidden(hidden: boolean): void
+    setSidebarWidth(width: number): void
+    onSidebarLayout(cb: (l: { collapsed: boolean; hidden: boolean; width: number }) => void): void
+    /** Split view (D62): main shows a native menu of the other accounts, closes it, or resizes both pages. */
+    splitMenu(id: string): void
+    closeSplit(): void
+    setSplitRatio(ratio: number): void
+    saveSplitRatio(ratio: number): void
+    onSplit(cb: (s: { b: string; ratio: number } | undefined) => void): void
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */
     dialog(open: boolean): void
+    /** Ctrl+K (D59): main asks for the quick switcher, from the window or a service view. */
+    onSwitcher(cb: () => void): void
+    /** F1 (D60): main asks for the shortcut cheat sheet. */
+    onShortcuts(cb: () => void): void
     /** Top bar Reload: reloads the account's view, or wakes it when asleep. */
     reload(id: string): void
     /** Sleep now (D27): unloads the account's view; it wakes on Wake up, Reload or reselect. */
@@ -104,11 +201,29 @@ interface Window {
     onZoom(cb: (s: Snapshot) => void): void
     /** Mute or unmute an account (D19). */
     mute(id: string, muted: boolean): Promise<Snapshot>
+    /** Per-account proxy (D63): empty value is Direct; an invalid address comes back as an error. */
+    setProxy(id: string, value: string): Promise<Snapshot | { error: string }>
+    /** Proxy chip: main shows the address, Test connection and Change (opens the account sheet). */
+    proxyMenu(id: string): void
+    /** Fetches the public IP through the account's proxy session. */
+    testProxy(id: string): Promise<{ ip: string } | { error: string }>
+    /** Main asks for the account sheet (the proxy menu's Change). */
+    onOpenSheet(cb: (id: string) => void): void
     /** Blur media in an account's view until hovered (D42, D43). */
     setBlur(id: string, on: boolean): Promise<Snapshot>
     /** One WhatsApp privacy blur part on or off (D48). */
     setBlurPart(id: string, part: string, on: boolean): Promise<Snapshot>
     setKeepDeleted(id: string, on: boolean): Promise<Snapshot>
+    /** Turn a known Chrome extension on or off for one account (D49); WhatsApp reloads. */
+    setExtension(id: string, extId: string, on: boolean): Promise<Snapshot>
+    /** Installed Chrome extensions (D49), install from a store link, remove (off for every account). */
+    extensions(): Promise<ExtensionRow[]>
+    /** Check the Chrome Web Store for newer copies and load them (D56). */
+    checkExtensionUpdates(): Promise<ExtensionUpdateResult>
+    installExtension(link: string): Promise<{ ok: true; list: ExtensionRow[] } | { error: string }>
+    removeExtension(id: string): Promise<ExtensionRow[]>
+    /** Puzzle button: main shows the extensions menu for this account. */
+    extensionMenu(id: string): void
     /** An external link matches several accounts (D40): pick one, 'browser', or null to cancel. */
     onLinkChoose(cb: (r: LinkChoice) => void): void
     chooseLink(id: number, choice: string | null): void
@@ -127,6 +242,11 @@ interface Window {
     updateCheck(): Promise<UpdateInfo>
     updateApply(): Promise<boolean>
     onUpdate(cb: (u: UpdateInfo) => void): void
+    /** Backup and restore (D61): export writes one encrypted file; a restore is staged for the next start. */
+    exportBackup(v: { password: string; includeLogins: boolean }): Promise<{ ok: true; file: string; manifest?: BackupManifest } | { canceled: true } | { error: string }>
+    pickBackup(): Promise<{ file: string } | { canceled: true }>
+    inspectBackup(v: { file: string; password: string }): Promise<{ manifest: BackupManifest } | { error: string }>
+    restoreBackup(v: { file: string; password: string }): Promise<{ ok: true; manifest: BackupManifest } | { error: string }>
     /** Downloads (D31): the folder in use (the system Downloads dir by default) and the ask switch; pick opens a folder picker and saves it. */
     downloads(): Promise<{ dir: string; ask: boolean }>
     setDownloadsAsk(ask: boolean): Promise<boolean>

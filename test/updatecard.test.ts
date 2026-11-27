@@ -31,14 +31,24 @@ describe('Settings > General Updates card', () => {
     expect(await status({ state: 'checking' })).toBe('Checking...')
   })
 
+  it('a custom build shows its change count, the disabled-updates note and no update button', async () => {
+    const c = await card({ state: 'available', latest: 'v9.9.9', custom: { tag: 'v0.1.19', count: 4 } })
+    expect(c.find('.custom').text()).toBe('Custom build (4 changes on top of v0.1.19)')
+    expect(c.find('.hint').text()).toBe('Updates are off for a custom build')
+    expect(c.findAll('.btn').map((b) => b.text())).toEqual(['Check for updates'])
+    const one = await card({ state: 'none', custom: { tag: 'v0.1.19', count: 1 } })
+    expect(one.find('.custom').text()).toBe('Custom build (1 change on top of v0.1.19)')
+  })
+
   it('Check for updates emits check; Update and restart exists only when available and emits apply', async () => {
     const none = await card({ state: 'none' })
     expect(none.findAll('.btn').map((b) => b.text())).toEqual(['Check for updates'])
     const w = mount(SettingsGeneral, { props: { update: { state: 'available', latest: 'v9.9.9' } } })
     await flushPromises()
-    expect(w.findAll('.btn').slice(1).map((b) => b.text())).toEqual(['Check for updates', 'Update and restart'])
-    await w.findAll('.btn')[1].trigger('click')
-    await w.find('.btn.pri').trigger('click')
+    const c = w.findAll('.card').find((x) => x.find('h4').text() === 'Updates')!
+    expect(c.findAll('.btn').map((b) => b.text())).toEqual(['Check for updates', 'Update and restart'])
+    await c.findAll('.btn')[0].trigger('click')
+    await c.find('.btn.pri').trigger('click')
     expect(w.emitted('check')).toHaveLength(1)
     expect(w.emitted('apply')).toHaveLength(1)
   })

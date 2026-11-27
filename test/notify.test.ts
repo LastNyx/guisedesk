@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decideNotification } from '../src/main/notify'
+import { decideNotification, quietOutsideWorkHours } from '../src/main/notify'
 
 const event = {
   accountId: 'a1',
@@ -42,5 +42,36 @@ describe('decideNotification', () => {
   it('locked still drops a muted account and DND', () => {
     expect(decideNotification(event, { locked: true, muted: true })).toEqual({ action: 'drop' })
     expect(decideNotification(event, { locked: true, dnd: true })).toEqual({ action: 'drop' })
+  })
+})
+
+describe('quiet outside work hours (D58)', () => {
+  const sched = {
+    on: true,
+    days: [1, 2, 3, 4, 5],
+    start: '08:00',
+    end: '17:00',
+    workMinutes: 15,
+    offMinutes: 480,
+    count: 'unlock' as const
+  }
+  const at = (day: number, hour: number) => new Date(2026, 0, day, hour, 0)
+
+  it('is off when the switch is off, at any time', () => {
+    expect(quietOutsideWorkHours(false, sched, at(5, 20))).toBe(false)
+    expect(quietOutsideWorkHours(false, sched, at(5, 10))).toBe(false)
+  })
+
+  it('is on only outside the schedule days and hours', () => {
+    expect(quietOutsideWorkHours(true, sched, at(5, 10))).toBe(false)
+    expect(quietOutsideWorkHours(true, sched, at(5, 20))).toBe(true)
+    expect(quietOutsideWorkHours(true, sched, at(3, 10))).toBe(true)
+  })
+
+  it('drops notifications like DND without touching the muted or locked rules', () => {
+    expect(decideNotification(event, { quiet: true })).toEqual({ action: 'drop' })
+    expect(decideNotification(event, { quiet: true, muted: false }).action).toBe('drop')
+    expect(decideNotification(event, { quiet: false }).action).toBe('full')
+    expect(decideNotification(event, { quiet: true, locked: true })).toEqual({ action: 'drop' })
   })
 })

@@ -18,6 +18,7 @@ const install = (extra: Record<string, Fn> = {}) => {
     lock: vi.fn(),
     setDnd: vi.fn(async () => true),
     onDnd: vi.fn(),
+    setQuietWorkHours: vi.fn(async () => true),
     setStartOnLogin: vi.fn(async () => true),
     ...extra
   }
@@ -184,5 +185,41 @@ describe('Settings tabs in the app', () => {
     expect(w.find('.lockv.reset').exists()).toBe(true)
     await btn(w, 'Cancel').trigger('click')
     expect(w.find('.tabs').exists()).toBe(true)
+  })
+})
+
+describe('SettingsNotifications quiet outside work hours (D58)', () => {
+  const acc: AccountRow[] = []
+
+  it('is off by default and the switch sends the change to main', async () => {
+    install()
+    const w = mount(SettingsNotifications, { props: { accounts: acc } })
+    await flushPromises()
+    const quiet = w.find('[aria-label="Quiet outside work hours"]')
+    expect(quiet.classes()).not.toContain('on')
+    await quiet.trigger('click')
+    await flushPromises()
+    expect(bridge.setQuietWorkHours).toHaveBeenCalledWith(true)
+    expect(quiet.classes()).toContain('on')
+  })
+
+  it('shows it on when main says it is set and turns it off again', async () => {
+    install({ prefs: vi.fn(async () => ({ idleLock: 10, dnd: false, quietWorkHours: true, startOnLogin: false })) })
+    const w = mount(SettingsNotifications, { props: { accounts: acc } })
+    await flushPromises()
+    const quiet = w.find('[aria-label="Quiet outside work hours"]')
+    expect(quiet.classes()).toContain('on')
+    await quiet.trigger('click')
+    await flushPromises()
+    expect(bridge.setQuietWorkHours).toHaveBeenCalledWith(false)
+    expect(quiet.classes()).not.toContain('on')
+  })
+
+  it('keeps the tray DND switch separate', async () => {
+    install({ prefs: vi.fn(async () => ({ idleLock: 10, dnd: false, quietWorkHours: true, startOnLogin: false })) })
+    const w = mount(SettingsNotifications, { props: { accounts: acc } })
+    await flushPromises()
+    expect(w.find('[aria-label="Do Not Disturb"]').classes()).not.toContain('on')
+    expect(w.find('[aria-label="Quiet outside work hours"]').classes()).toContain('on')
   })
 })
