@@ -12,6 +12,13 @@ const status = computed(() => {
   if (u.state === 'checking') return 'Checking...'
   return 'Up to date'
 })
+// Custom build (D55): local commits on top of a release tag; the updater would drop them, so it is off.
+const custom = computed(() => props.update.custom)
+const customText = computed(() => {
+  const c = custom.value
+  if (!c) return ''
+  return `Custom build (${c.count} change${c.count === 1 ? '' : 's'} on top of ${c.tag})`
+})
 
 const on = ref(false)
 onMounted(async () => {
@@ -84,9 +91,10 @@ async function toggle() {
     <div class="card">
       <h4>Updates</h4>
       <div class="sr">
-        <span class="t"><b>GuiseDesk v{{ version }}</b><span>{{ status }}</span></span>
+        <span class="t"><b>GuiseDesk v{{ version }}</b><span v-if="custom" class="custom">{{ customText }}</span><span>{{ status }}</span></span>
         <button class="btn" :disabled="update.state === 'checking'" @click="emit('check')">Check for updates</button>
-        <button v-if="update.state === 'available'" class="btn pri" @click="emit('apply')">Update and restart</button>
+        <span v-if="custom" class="hint">Updates are off for a custom build</span>
+        <button v-else-if="update.state === 'available'" class="btn pri" @click="emit('apply')">Update and restart</button>
       </div>
     </div>
   </div>

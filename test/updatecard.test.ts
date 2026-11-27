@@ -31,6 +31,15 @@ describe('Settings > General Updates card', () => {
     expect(await status({ state: 'checking' })).toBe('Checking...')
   })
 
+  it('a custom build shows its change count, the disabled-updates note and no update button', async () => {
+    const c = await card({ state: 'available', latest: 'v9.9.9', custom: { tag: 'v0.1.19', count: 4 } })
+    expect(c.find('.custom').text()).toBe('Custom build (4 changes on top of v0.1.19)')
+    expect(c.find('.hint').text()).toBe('Updates are off for a custom build')
+    expect(c.findAll('.btn').map((b) => b.text())).toEqual(['Check for updates'])
+    const one = await card({ state: 'none', custom: { tag: 'v0.1.19', count: 1 } })
+    expect(one.find('.custom').text()).toBe('Custom build (1 change on top of v0.1.19)')
+  })
+
   it('Check for updates emits check; Update and restart exists only when available and emits apply', async () => {
     const none = await card({ state: 'none' })
     expect(none.findAll('.btn').map((b) => b.text())).toEqual(['Check for updates'])

@@ -780,7 +780,8 @@ function createWindow(): BrowserWindow {
   gipc.handle('update:state', (e: { sender: { id: number } }) => (fromApp(e) ? update : undefined))
   gipc.handle('update:check', (e: { sender: { id: number } }) => (fromApp(e) ? runCheck() : undefined))
   gipc.handle('update:apply', (e: { sender: { id: number } }) => {
-    if (!fromApp(e) || update.state !== 'available' || !('latest' in update) || !update.latest) return false
+    // A custom build must never run update.sh: it would check out LastNyx's tag and drop the local commits (D55).
+    if (!fromApp(e) || ('custom' in update && !!update.custom) || update.state !== 'available' || !('latest' in update) || !update.latest) return false
     // update.sh is copied first: the checkout rewrites launchers/update.sh while the script runs.
     const copy = join(mkdtempSync(join(tmpdir(), 'guisedesk-update-')), 'update.sh')
     copyFileSync(join(root, 'launchers', 'update.sh'), copy)

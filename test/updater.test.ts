@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { checkForUpdate, newer, parseTags } from '../src/main/updater'
+import { checkForUpdate, detectCustom, newer, parseDescribe, parseTags, type Run } from '../src/main/updater'
 
 const LS = [
   'aaa111\trefs/tags/v0.1.0',
@@ -26,6 +26,41 @@ describe('parseTags / newer', () => {
     expect(newer('v0.1.10', ['v0.1.9', 'v0.1.10'])).toBeNull()
     expect(newer('0.2.0', ['v0.1.10'])).toBeNull()
     expect(newer('0.1.0', [])).toBeNull()
+  })
+})
+
+describe('custom build detection (D55)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'gd-upd-'))
+  mkdirSync(join(root, '.git'))
+  const runner = (describe: string, count?: string, calls: string[][] = []): Run => async (_cmd, args) => {
+    calls.push(args)
+    if (args[0] === 'describe') return { code: 0, stdout: `${describe}\n` }
+    if (args[0] === 'rev-list') return count === undefined ? { code: 1, stdout: '' } : { code: 0, stdout: `${count}\n` }
+    if (args[0] === 'ls-remote') return { code: 0, stdout: LS }
+    return { code: 1, stdout: '' }
+  }
+
+  it('parses describe text: an exact tag, commits ahead, and a dirty suffix', () => {
+    expect(parseDescribe('v0.1.19')).toEqual({ tag: 'v0.1.19', ahead: 0 })
+    expect(parseDescribe('v0.1.19-4-ga57b6a7\n')).toEqual({ tag: 'v0.1.19', ahead: 4 })
+    expect(parseDescribe('v0.1.19-4-ga57b6a7-dirty')).toEqual({ tag: 'v0.1.19', ahead: 4 })
+    expect(parseDescribe('main')).toBeNull()
+    expect(parseDescribe('v1.2.3-rc1')).toBeNull()
+  })
+
+  it('detects commits on top of a tag as custom, using rev-list for the exact count', async () => {
+    const calls: string[][] = []
+    expect(await detectCustom({ root, run: runner('v0.1.19-4-ga57b6a7', '4', calls) })).toEqual({ tag: 'v0.1.19', count: 4 })
+    expect(calls).toContainEqual(['rev-list', 'v0.1.19..HEAD', '--count'])
+    expect(await detectCustom({ root, run: runner('v0.1.19', '0') })).toBeNull()
+    expect(await detectCustom({ root, run: runner('not-a-tag') })).toBeNull()
+    // rev-list failing still gives the describe count.
+    expect(await detectCustom({ root, run: runner('v0.1.19-3-gabc1234') })).toEqual({ tag: 'v0.1.19', count: 3 })
+  })
+
+  it('checkForUpdate keeps the custom marker with the available note', async () => {
+    const r = await checkForUpdate({ root, current: '0.1.1', env: {}, run: runner('v0.1.19-4-ga57b6a7', '4') })
+    expect(r).toEqual({ state: 'available', latest: 'v0.1.10', custom: { tag: 'v0.1.19', count: 4 } })
   })
 })
 

@@ -74,6 +74,8 @@ interface UpdateInfo {
   state: 'checking' | 'disabled' | 'none' | 'available' | 'error'
   latest?: string
   message?: string
+  /** Local commits on top of a release tag (D55): updates are off for this build. */
+  custom?: { tag: string; count: number }
 }
 
 interface Window {
