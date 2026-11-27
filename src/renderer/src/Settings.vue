@@ -7,7 +7,7 @@ import SettingsNotifications from './SettingsNotifications.vue'
 import SettingsServices from './SettingsServices.vue'
 
 const props = defineProps<{ accounts: AccountRow[]; disabled: string[]; update?: UpdateInfo; tab?: string }>()
-const emit = defineEmits<{ back: []; toggle: [serviceId: string, enabled: boolean]; open: [id: string]; unmute: [id: string]; reset: []; check: []; apply: [] }>()
+const emit = defineEmits<{ back: []; toggle: [serviceId: string, enabled: boolean]; open: [id: string]; unmute: [id: string]; reset: []; check: []; apply: []; shortcuts: [] }>()
 
 const TABS = ['Services', 'Lock', 'Notifications', 'Extensions', 'General']
 // Dev-only: the screenshot hook opens a tab with ?tab=Lock.
@@ -24,6 +24,6 @@ watch(() => props.tab, (t) => t && TABS.includes(t) && (tab.value = t))
     <SettingsLock v-else-if="tab === 'Lock'" @reset="emit('reset')" />
     <SettingsNotifications v-else-if="tab === 'Notifications'" :accounts="accounts" @unmute="(id) => emit('unmute', id)" />
     <SettingsExtensions v-else-if="tab === 'Extensions'" :accounts="accounts" />
-    <SettingsGeneral v-else :update="update ?? { state: 'checking' }" @check="emit('check')" @apply="emit('apply')" />
+    <SettingsGeneral v-else :update="update ?? { state: 'checking' }" @check="emit('check')" @apply="emit('apply')" @shortcuts="emit('shortcuts')" />
   </section>
 </template>

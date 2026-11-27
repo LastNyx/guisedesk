@@ -17,6 +17,31 @@ export const ZOOM_MAX = 5
 export const isSwitcherShortcut = (i: { type: string; control?: boolean; alt?: boolean; meta?: boolean; shift?: boolean; key: string }): boolean =>
   i.type === 'keyDown' && !!i.control && !i.alt && !i.meta && !i.shift && i.key.toLowerCase() === 'k'
 
+/** F1 (D60): the shortcut cheat sheet, from anywhere in the app. */
+export const isHelpShortcut = (i: { type: string; key: string }): boolean => i.type === 'keyDown' && i.key === 'F1'
+
+export interface ShortcutInfo {
+  group: string
+  keys: string
+  title: string
+}
+
+/** Every shortcut the app actually has (D60). One list, shared by the cheat sheet and its test. */
+export const SHORTCUTS: ShortcutInfo[] = [
+  { group: 'Accounts', keys: 'Ctrl+1 … Ctrl+9', title: 'Switch to that account in the sidebar' },
+  { group: 'Accounts', keys: 'Ctrl+Tab / Ctrl+Shift+Tab', title: 'Next / previous account' },
+  { group: 'Accounts', keys: 'Ctrl+K', title: 'Quick switcher' },
+  { group: 'Window', keys: 'Ctrl+B', title: 'Show or collapse the sidebar' },
+  { group: 'Window', keys: 'Ctrl+= / Ctrl+-', title: 'Zoom in / out' },
+  { group: 'Window', keys: 'Ctrl+0', title: 'Reset zoom' },
+  { group: 'Window', keys: 'Esc', title: 'Close a dialog or Settings' },
+  { group: 'Window', keys: 'F1', title: 'Keyboard shortcuts' },
+  { group: 'Window', keys: '?', title: 'Keyboard shortcuts (app window, not in a field)' },
+  { group: 'Privacy', keys: 'Ctrl+L', title: 'Lock now' },
+  { group: 'Links and popups', keys: 'Middle-click or Ctrl+click', title: 'Open a link in a popup window' },
+  { group: 'Links and popups', keys: 'Ctrl+W or Esc', title: 'Close a popup window' }
+]
+
 /** Ctrl+=, Ctrl++ (with Shift), Ctrl+-, Ctrl+0, also the numpad keys; anything else is null. */
 export function zoomKey(i: KeyInput): ZoomDir | null {
   if (i.type !== 'keyDown' || !i.control || i.alt || i.meta) return null

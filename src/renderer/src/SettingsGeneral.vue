@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { version } from '../../../package.json'
 
 const props = defineProps<{ update: UpdateInfo }>()
-const emit = defineEmits<{ check: []; apply: [] }>()
+const emit = defineEmits<{ check: []; apply: []; shortcuts: [] }>()
 const status = computed(() => {
   const u = props.update
   if (u.state === 'available') return `${u.latest} available`
@@ -89,6 +89,13 @@ async function toggle() {
       </div>
     </div>
     <div class="card">
+      <h4>Keyboard</h4>
+      <div class="sr">
+        <span class="t"><b>Keyboard shortcuts</b><span>See every shortcut the app has.</span></span>
+        <button class="lnk" @click="emit('shortcuts')">Show shortcuts</button>
+      </div>
+    </div>
+    <div class="card">
       <h4>Updates</h4>
       <div class="sr">
         <span class="t"><b>GuiseDesk v{{ version }}</b><span v-if="custom" class="custom">{{ customText }}</span><span>{{ status }}</span></span>
@@ -102,4 +109,6 @@ async function toggle() {
 
 <style scoped>
 .path { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lnk { flex: none; height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid #ffffff18; background: transparent; color: var(--text); font-size: 12.5px; font-weight: 700; }
+.lnk:hover { background: var(--raise); }
 </style>

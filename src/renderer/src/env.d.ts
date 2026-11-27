@@ -135,6 +135,8 @@ interface Window {
     dialog(open: boolean): void
     /** Ctrl+K (D59): main asks for the quick switcher, from the window or a service view. */
     onSwitcher(cb: () => void): void
+    /** F1 (D60): main asks for the shortcut cheat sheet. */
+    onShortcuts(cb: () => void): void
     /** Top bar Reload: reloads the account's view, or wakes it when asleep. */
     reload(id: string): void
     /** Sleep now (D27): unloads the account's view; it wakes on Wake up, Reload or reselect. */

@@ -8,6 +8,7 @@ import LockScreen from './LockScreen.vue'
 import QuickSwitcher from './QuickSwitcher.vue'
 import ResetScreen from './ResetScreen.vue'
 import Settings from './Settings.vue'
+import ShortcutHelp from './ShortcutHelp.vue'
 import SetupScreen from './SetupScreen.vue'
 import Sidebar from './Sidebar.vue'
 import TopBar from './TopBar.vue'
@@ -49,6 +50,8 @@ const settingsTab = ref<string | undefined>()
 const choosing = ref<LinkChoice | undefined>()
 // Ctrl+K quick switcher (D59): a modal over the app; main detaches the service view while any layer is open.
 const switcherOpen = ref(false)
+// F1 / ? shortcut cheat sheet (D60): the last, topmost layer.
+const helpOpen = ref(false)
 
 async function loadAccounts() {
   const s = await window.guisedesk.state()
@@ -78,12 +81,13 @@ function wipe() {
   settingsOpen.value = false
   sheetId.value = undefined
   switcherOpen.value = false
+  helpOpen.value = false
   lockChip.value = null
 }
 
-// Any layer that must have the service view off the window (D59): Settings, Add account, the link chooser, the switcher.
+// Any layer that must have the service view off the window (D59): Settings, Add account, the link chooser, the dialogs.
 function overlayOpen(): boolean {
-  return settingsOpen.value || adding.value || !!choosing.value || switcherOpen.value
+  return settingsOpen.value || adding.value || !!choosing.value || switcherOpen.value || helpOpen.value
 }
 function syncDialog() {
   window.guisedesk.dialog(overlayOpen())
@@ -101,7 +105,8 @@ async function apply(info: LockInfo) {
 // Esc closes the topmost layer (D53): a link choice, then Add account, then the account sheet, then Settings.
 function onEsc(e: KeyboardEvent) {
   if (e.key !== 'Escape' || lockInfo.value.state !== 'unlocked') return
-  if (switcherOpen.value) closeSwitcher()
+  if (helpOpen.value) closeHelp()
+  else if (switcherOpen.value) closeSwitcher()
   else if (choosing.value) chosen(null)
   else if (adding.value) closeAdd()
   else if (sheetId.value) sheetId.value = undefined
@@ -109,8 +114,25 @@ function onEsc(e: KeyboardEvent) {
   else return
   e.preventDefault()
 }
-onMounted(() => window.addEventListener('keydown', onEsc))
-onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
+// ? (Shift+/) in the app window opens the cheat sheet, unless a field has focus (D60). F1 arrives from main.
+function typing(): boolean {
+  const el = document.activeElement as HTMLElement | null
+  if (!el) return false
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable
+}
+function onHelpKey(e: KeyboardEvent) {
+  if (e.key !== '?' || lockInfo.value.state !== 'unlocked' || typing()) return
+  e.preventDefault()
+  openHelp()
+}
+onMounted(() => {
+  window.addEventListener('keydown', onEsc)
+  window.addEventListener('keydown', onHelpKey)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onEsc)
+  window.removeEventListener('keydown', onHelpKey)
+})
 
 onMounted(async () => {
   window.guisedesk.onLock((info) => void apply(info))
@@ -143,6 +165,8 @@ onMounted(async () => {
   })
   // Ctrl+K (D59) from main, whether focus was in the window or a service view.
   window.guisedesk.onSwitcher?.(() => openSwitcher())
+  // F1 (D60) from main: the cheat sheet, over whatever else is open.
+  window.guisedesk.onShortcuts?.(() => openHelp())
   window.guisedesk.onOpenSettings(() => lockInfo.value.state === 'unlocked' && openSettings())
   await apply(await window.guisedesk.lockState())
   // Dev-only: the screenshot hook opens the dialog via ?dialog=add (or settings, with ?sheet=<account id>).
@@ -253,6 +277,20 @@ function pickSwitcher(id: string) {
   syncDialog()
 }
 
+// Shortcut cheat sheet (D60): F1, ? or the Settings > General row. It sits above every other layer.
+function openHelp() {
+  if (lockInfo.value.state !== 'unlocked') return
+  switcherOpen.value = false
+  helpOpen.value = true
+  syncDialog()
+}
+
+function closeHelp() {
+  if (!helpOpen.value) return
+  helpOpen.value = false
+  syncDialog()
+}
+
 function openSettings() {
   if (settingsOpen.value) return
   settingsOpen.value = true
@@ -342,7 +380,7 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
     <Sidebar v-if="!sideHidden" :width="sideWidthPx" @hide="hideSidebar(true)" @resize="resizeSidebar" :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" :update="update.state === 'available'" @update="openUpdates" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
     <main class="main">
       <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" :lock="lockChip" @lock-menu="openLockMenu" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" @extensions="extensionMenu(current!.id)" />
-      <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" :update="update" :tab="settingsTab" @check="checkUpdate" @apply="applyUpdate" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" />
+      <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" :update="update" :tab="settingsTab" @check="checkUpdate" @apply="applyUpdate" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" @shortcuts="openHelp" />
       <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
       <div v-else class="panel"></div>
     </main>
@@ -362,5 +400,6 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
     <LinkChooser v-if="choosing" :url="choosing.url" :candidates="choosing.candidates" @choose="chosen" />
     <AddAccount v-if="adding" :accounts="accounts" :server-error="addError" @add="add" @cancel="closeAdd" />
     <QuickSwitcher v-if="switcherOpen" :accounts="shown" @choose="pickSwitcher" @close="closeSwitcher" />
+    <ShortcutHelp v-if="helpOpen" @close="closeHelp" />
   </div>
 </template>

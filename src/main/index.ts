@@ -40,7 +40,7 @@ import { checkForUpdate, realRun, type UpdateInfo } from './updater'
 import { version } from '../../package.json'
 import { buildContextMenu, rowMenuItems } from './contextmenu'
 import { doneNotice, loadDownloads, saveDownloads, uniquePath } from './downloads'
-import { isSwitcherShortcut, nextZoom, switchTarget, zoomKey, type KeyInput } from './shortcuts'
+import { isHelpShortcut, isSwitcherShortcut, nextZoom, switchTarget, zoomKey, type KeyInput } from './shortcuts'
 import { sidebarOrder } from './services'
 import { PARTS, partsOn, type Part } from '../preload/blur'
 import { onPartition, partitionKey, partitionOf } from './sharing'
@@ -118,6 +118,8 @@ let zoomKeyDown: (i: KeyInput) => boolean = () => false
 let switchKeyDown: (i: KeyInput) => boolean = () => false
 // Ctrl+K (D59): ask the renderer to open the quick switcher over everything, service views included.
 let openSwitcher: () => void = () => {}
+// F1 (D60): ask the renderer to show the shortcut cheat sheet.
+let openHelp: () => void = () => {}
 const live = new Set<Notification>() // keep references so click handlers survive GC
 
 /** One request to the site for its favicon (Custom URL accounts only, once per host). */
@@ -284,6 +286,12 @@ function openPopup(a: Account, url: string): void {
       openSwitcher()
       return
     }
+    // F1 (D60) shows the shortcut cheat sheet.
+    if (isHelpShortcut(input) && isUnlocked()) {
+      e.preventDefault()
+      openHelp()
+      return
+    }
     // Ctrl+L locks from a popup too; locking closes every popup (D37).
     if (isLockShortcut(input)) {
       e.preventDefault()
@@ -332,6 +340,12 @@ function hookLinks(v: WebContentsView, a: Account): void {
     if (isSwitcherShortcut(input) && isUnlocked()) {
       e.preventDefault()
       openSwitcher()
+      return
+    }
+    // F1 (D60): the shortcut cheat sheet, over the detached view.
+    if (isHelpShortcut(input) && isUnlocked()) {
+      e.preventDefault()
+      openHelp()
       return
     }
     if (zoomKeyDown(input) || switchKeyDown(input)) {
@@ -740,6 +754,11 @@ function createWindow(): BrowserWindow {
     showWindow()
     if (!win.isDestroyed() && isUnlocked()) win.webContents.send('ui:switcher')
   }
+  // F1 (D60): raise the window and let the renderer show the shortcut cheat sheet.
+  openHelp = () => {
+    showWindow()
+    if (!win.isDestroyed() && isUnlocked()) win.webContents.send('ui:help')
+  }
   // A second launch: raise this window (lock state unchanged) unless it was a --hidden login start.
   app.on('second-instance', (_e, argv) => {
     if (secondLaunch(argv) === 'ignore') return
@@ -1113,6 +1132,12 @@ function createWindow(): BrowserWindow {
     if (isSwitcherShortcut(input) && isUnlocked()) {
       e.preventDefault()
       openSwitcher()
+      return
+    }
+    // F1 (D60): the shortcut cheat sheet, from the window too.
+    if (isHelpShortcut(input) && isUnlocked()) {
+      e.preventDefault()
+      openHelp()
       return
     }
     if (zoomKeyDown(input) || switchKeyDown(input)) {
