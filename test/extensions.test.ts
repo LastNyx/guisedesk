@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
-import { compareVersions, createExtensionFetcher, enabledFor, listInstalled, parseExtensionId, readyCopy, toggled } from '../src/main/extensions'
+import { actionClick, compareVersions, createExtensionFetcher, enabledFor, listInstalled, parseExtensionId, readManifest, readyCopy, toggled } from '../src/main/extensions'
 import { appendEvent, lostLogins } from '../src/main/events'
 import SettingsExtensions from '../src/renderer/src/SettingsExtensions.vue'
 
@@ -33,6 +33,27 @@ describe('extensions (D49)', () => {
     writeFileSync(join(d, '_locales', 'en', 'messages.json'), JSON.stringify({ appName: { message: 'WA Web Plus' } }))
     mkdirSync(join(root, 'not-an-id'))
     expect(listInstalled(root).map(({ id, name, version }) => ({ id, name, version }))).toEqual([{ id: WAWP, name: 'WA Web Plus', version: '5.2.9' }])
+  })
+})
+
+describe('toolbar click target (D54)', () => {
+  it('opens the popup of an MV3 action or MV2 browser_action that declares default_popup', () => {
+    expect(actionClick({ manifest_version: 3, action: { default_popup: 'popup.html' } })).toEqual({ kind: 'popup', popup: 'popup.html' })
+    expect(actionClick({ manifest_version: 2, browser_action: { default_popup: ' ui.html ' } })).toEqual({ kind: 'popup', popup: 'ui.html' })
+  })
+  it('dispatches onClicked when there is no popup, a blank one, or no declarative action at all', () => {
+    expect(actionClick({ manifest_version: 3, action: {} })).toEqual({ kind: 'onClicked' })
+    expect(actionClick({ manifest_version: 3, action: { default_popup: '  ' } })).toEqual({ kind: 'onClicked' })
+    expect(actionClick({ manifest_version: 3, action: 'x' })).toEqual({ kind: 'onClicked' })
+    expect(actionClick({ manifest_version: 2, action: { default_popup: 'wrong-key.html' } })).toEqual({ kind: 'onClicked' })
+    expect(actionClick({ manifest_version: 3, browser_action: { default_popup: 'wrong-key.html' } })).toEqual({ kind: 'onClicked' })
+    expect(actionClick(null)).toEqual({ kind: 'onClicked' })
+  })
+  it('readManifest reads a real folder and survives a missing manifest', () => {
+    const root = mkdtempSync(join(tmpdir(), 'gd-ext-'))
+    writeFileSync(join(root, 'manifest.json'), JSON.stringify({ name: 'WA Web Plus', manifest_version: 3 }))
+    expect(readManifest(root)).toMatchObject({ name: 'WA Web Plus', manifest_version: 3 })
+    expect(readManifest(join(root, 'nope'))).toEqual({})
   })
 })
 

@@ -67,14 +67,41 @@ export function readyCopy(extDir: string, id: string): string | null {
   return best?.path ?? null
 }
 
+/** Parsed manifest.json of an unpacked extension; {} when missing or unreadable. */
+export function readManifest(path: string): Record<string, unknown> {
+  try {
+    const m = JSON.parse(readFileSync(join(path, 'manifest.json'), 'utf8'))
+    return m && typeof m === 'object' ? m : {}
+  } catch {
+    return {}
+  }
+}
+
+export type ActionClick = { kind: 'popup'; popup: string } | { kind: 'onClicked' }
+
+/**
+ * What a toolbar click does for this manifest (D54): open action.default_popup when the manifest has one, else
+ * dispatch onClicked. MV3 reads `action`, MV2 `browser_action`; a malformed or missing action means onClicked.
+ */
+export function actionClick(manifest: unknown): ActionClick {
+  const m = (manifest && typeof manifest === 'object' ? manifest : {}) as {
+    manifest_version?: unknown
+    action?: { default_popup?: unknown }
+    browser_action?: { default_popup?: unknown }
+  }
+  const action = m.manifest_version === 3 ? m.action : m.manifest_version === 2 ? m.browser_action : undefined
+  const popup = action && typeof action === 'object' ? action.default_popup : undefined
+  return typeof popup === 'string' && popup.trim() ? { kind: 'popup', popup: popup.trim() } : { kind: 'onClicked' }
+}
+
 /** Manifest name, resolving __MSG_key__ from _locales (default_locale, then en). */
 export function manifestName(path: string): string {
   try {
-    const m = JSON.parse(readFileSync(join(path, 'manifest.json'), 'utf8'))
+    const m = readManifest(path)
     const raw = String(m.name ?? '')
     const key = /^__MSG_(.+)__$/.exec(raw)?.[1]
     if (!key) return raw
-    for (const loc of [m.default_locale, 'en', 'en_US'].filter(Boolean)) {
+    for (const loc of [m.default_locale, 'en', 'en_US'].filter((x): x is string => typeof x === 'string' && !!x)) {
       try {
         const msgs = JSON.parse(readFileSync(join(path, '_locales', loc, 'messages.json'), 'utf8'))
         const hit = Object.entries(msgs).find(([k]) => k.toLowerCase() === key.toLowerCase())?.[1] as { message?: string } | undefined

@@ -20,7 +20,7 @@ import { createBlockState, shieldMenuItems } from './blockstate'
 import { createDispatcher } from './webrequest'
 import { ElectronChromeExtensions } from 'electron-chrome-extensions'
 import { downloadExtension } from 'electron-chrome-web-store'
-import { createExtensionFetcher, enabledFor, extensionsDir, listInstalled, parseExtensionId, toggled } from './extensions'
+import { actionClick, createExtensionFetcher, enabledFor, extensionsDir, listInstalled, parseExtensionId, readManifest, toggled } from './extensions'
 import { appendEvent, LOGIN_COOKIES, lostLogins } from './events'
 import { normalizeSchedule } from './schedule'
 import { parseUnread, totalUnread } from './unread'
@@ -436,12 +436,38 @@ async function applyExtensions(a: Account, wc: Electron.WebContents, win?: Elect
   onExtChange()
   return changed
 }
-/** The toolbar click on an extension: its popup, or chrome.action.onClicked for extensions without one. */
+interface ExtensionClickApi {
+  api?: { browserAction?: { activateClick(d: object): void } }
+  ctx?: {
+    store?: { getTabById(id: number): unknown; tabDetailsCache?: Map<number, unknown> }
+    router?: { sendEvent?(extensionId: string, eventName: string, ...args: unknown[]): void }
+  }
+}
+/**
+ * The toolbar click on an extension (D54): open action.default_popup when the manifest has one, else dispatch the
+ * click event. MV3 chrome.action.onClicked and MV2 chrome.browserAction.onClicked are both delivered by
+ * electron-chrome-extensions under `browserAction.onClicked`; WA Web Plus only reacts to that click event.
+ */
 function activateExtension(wc: Electron.WebContents, extId: string, win: BrowserWindow): void {
-  const api = extSessions.get(wc.session) as unknown as { api?: { browserAction?: { activateClick(d: object): void } } } | undefined
+  const api = extSessions.get(wc.session) as unknown as ExtensionClickApi | undefined
   const [w] = win.getSize()
+  const anchorRect = { x: w - 360, y: 56, width: 32, height: 32 }
+  const installed = listInstalled(extensionsDir(dir)).find((x) => x.id === extId)
+  const target = actionClick(installed ? readManifest(installed.path) : {})
   try {
-    api?.api?.browserAction?.activateClick({ eventType: 'click', extensionId: extId, tabId: wc.id, anchorRect: { x: w - 360, y: 56, width: 32, height: 32 } })
+    if (target.kind === 'popup') {
+      api?.api?.browserAction?.activateClick({ eventType: 'click', extensionId: extId, tabId: wc.id, anchorRect })
+      return
+    }
+    const ctx = api?.ctx
+    const tab = ctx?.store?.getTabById?.(wc.id)
+    const details = tab ? ctx?.store?.tabDetailsCache?.get(wc.id) : undefined
+    if (ctx?.router?.sendEvent) {
+      ctx.router.sendEvent(extId, 'browserAction.onClicked', details)
+      return
+    }
+    // Fallback for another library layout: activateClick also dispatches the click when there is no popup.
+    api?.api?.browserAction?.activateClick({ eventType: 'click', extensionId: extId, tabId: wc.id, anchorRect })
   } catch (err) {
     console.error('[guisedesk] extension click failed', extId, err)
   }
