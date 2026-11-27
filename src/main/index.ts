@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, nativeImage, powerMonitor, session, shell, WebContentsView } from 'electron'
 import { appRoot, dataDir, devUnlocked } from './paths'
-import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setServiceEnabled, setZoom, type Account } from './accounts'
+import { addAccount, IDLE_POLICIES, loadAccounts, loadDisabled, loadDnd, loadIdleMinutes, loadSchedule, saveSchedule, loadSelected, loadSidebarCollapsed, saveSidebarCollapsed, loadSidebarLayout, saveSidebarLayout, orderedAccounts, saveDnd, saveSelected, setIdlePolicy, reorderAccounts, setMuted, setBlurMedia, setBlurPart, setKeepDeleted, setExtensions, setServiceEnabled, setZoom, type Account } from './accounts'
 import { logOut, removeAccount } from './accountops'
 import { overlay } from './composite'
 import { cacheFavicon, readIcon, type Fetcher } from './favicon'
@@ -18,6 +18,11 @@ import { createAdblock } from './adblock'
 import { buildInWorker, loadEngineBytes, PRELOAD_PATH } from './adengine'
 import { createBlockState, shieldMenuItems } from './blockstate'
 import { createDispatcher } from './webrequest'
+import { ElectronChromeExtensions } from 'electron-chrome-extensions'
+import { downloadExtension } from 'electron-chrome-web-store'
+import { createExtensionFetcher, enabledFor, extensionsDir, listInstalled, parseExtensionId, toggled } from './extensions'
+import { appendEvent, LOGIN_COOKIES, lostLogins } from './events'
+import { normalizeSchedule } from './schedule'
 import { parseUnread, totalUnread } from './unread'
 import { createTray } from './tray'
 import { decideNotification } from './notify'
@@ -38,7 +43,7 @@ import { sidebarOrder } from './services'
 import { PARTS, partsOn, type Part } from '../preload/blur'
 import { onPartition, partitionKey, partitionOf } from './sharing'
 import { secondLaunch } from './singleinstance'
-import { isSidebarShortcut, panelBounds as layoutBounds } from './layout'
+import { clampSide, isSidebarShortcut, panelBounds as layoutBounds } from './layout'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
 // so sessions and partitions still land in the chosen dir. The name is what notifications and the tray show.
@@ -57,9 +62,12 @@ if (!app.requestSingleInstanceLock()) {
 // Content panel inside the renderer layout (D26 compact): numbers in layout.ts, shared with Sidebar.vue.
 // Sidebar rail state (D24), loaded from settings in createWindow.
 let sidebarCollapsed = false
+// Drag width and fully hidden sidebar (D52).
+let sidebarWidth = 232
+let sidebarHidden = false
 function panelBounds(win: BrowserWindow) {
   const [w, h] = win.getContentSize()
-  return layoutBounds(w, h, sidebarCollapsed)
+  return layoutBounds(w, h, sidebarCollapsed, sidebarWidth, sidebarHidden)
 }
 // The account page's corners match the rounded inset panel (10px in tokens.css).
 const VIEW_RADIUS = 10
@@ -365,6 +373,79 @@ function hookContextMenu(wc: Electron.WebContents): void {
 /** Downloads (D31): hooked once per account session (a session is shared by a rebuilt view). */
 const hookedSessions = new WeakSet<object>()
 let onDownloadDone: (ok: boolean, file: string) => void = () => {}
+
+// Chrome extensions per account (D49): electron-chrome-extensions once per session (chrome.tabs/windows APIs),
+// then installExtension downloads from the Chrome Web Store into <data>/extensions and loads it into that session.
+const extSessions = new WeakMap<Electron.Session, ElectronChromeExtensions>()
+const extErrors = new Map<string, string>()
+const extTabs = new WeakSet<Electron.WebContents>()
+// One shared download per extension (concurrent installs collided on the same folder: ENOTEMPTY).
+const fetchExtension = createExtensionFetcher(extensionsDir(dir), downloadExtension)
+// One load per session and extension at a time.
+const extLoading = new WeakMap<Electron.Session, Map<string, Promise<unknown>>>()
+let onExtChange: () => void = () => {}
+function extApiFor(ses: Electron.Session): ElectronChromeExtensions {
+  let x = extSessions.get(ses)
+  if (!x) {
+    x = new ElectronChromeExtensions({
+      session: ses,
+      // An extension asking for a tab or window (changelog, checkout) opens in the browser; GuiseDesk has no tabs.
+      createTab: async (d) => {
+        if (d.url) void shell.openExternal(String(d.url))
+        throw new Error('tabs are not supported')
+      },
+      createWindow: async (d) => {
+        const u = Array.isArray(d.url) ? d.url[0] : d.url
+        if (u) void shell.openExternal(String(u))
+        throw new Error('windows are not supported')
+      }
+    })
+    extSessions.set(ses, x)
+  }
+  return x
+}
+const installedIds = () => listInstalled(extensionsDir(dir)).map((x) => x.id)
+/** Loads the account's turned-on extensions into its session (downloads on first use); unloads the ones turned off. */
+async function applyExtensions(a: Account, wc: Electron.WebContents, win?: Electron.BaseWindow): Promise<boolean> {
+  const want = enabledFor(a, installedIds())
+  const ses = wc.session
+  const sx = ses.extensions
+  if (!want.length && !sx.getAllExtensions().length) return false
+  const api = extApiFor(ses)
+  if (win && !extTabs.has(wc)) { api.addTab(wc, win); extTabs.add(wc) }
+  let changed = false
+  for (const e of sx.getAllExtensions()) if (!want.includes(e.id)) { sx.removeExtension(e.id); changed = true }
+  for (const id of want) {
+    if (sx.getExtension(id)) continue
+    try {
+      let loads = extLoading.get(ses)
+      if (!loads) extLoading.set(ses, (loads = new Map()))
+      let p = loads.get(id)
+      if (!p) {
+        p = fetchExtension(id).then((path) => (sx.getExtension(id) ? undefined : sx.loadExtension(path, { allowFileAccess: false }))).finally(() => loads!.delete(id))
+        loads.set(id, p)
+      }
+      await p
+      extErrors.delete(a.id)
+      changed = true
+    } catch (err) {
+      console.error('[guisedesk] extension load failed', id, err)
+      extErrors.set(a.id, String((err as Error)?.message ?? err))
+    }
+  }
+  onExtChange()
+  return changed
+}
+/** The toolbar click on an extension: its popup, or chrome.action.onClicked for extensions without one. */
+function activateExtension(wc: Electron.WebContents, extId: string, win: BrowserWindow): void {
+  const api = extSessions.get(wc.session) as unknown as { api?: { browserAction?: { activateClick(d: object): void } } } | undefined
+  const [w] = win.getSize()
+  try {
+    api?.api?.browserAction?.activateClick({ eventType: 'click', extensionId: extId, tabId: wc.id, anchorRect: { x: w - 360, y: 56, width: 32, height: 32 } })
+  } catch (err) {
+    console.error('[guisedesk] extension click failed', extId, err)
+  }
+}
 function hookDownloads(ses: Electron.Session): void {
   if (hookedSessions.has(ses)) return
   hookedSessions.add(ses)
@@ -408,7 +489,11 @@ function viewFor(a: Account): WebContentsView {
     // Saved zoom (D32): applied now and again after each load (a new origin starts at 100%).
     v.webContents.setZoomLevel(a.zoom ?? 0)
     v.webContents.on('dom-ready', () => v!.webContents.setZoomLevel(owner.get(v!.webContents.id)?.zoom ?? 0))
-    v.webContents.loadURL(preset?.startUrl ?? a.custom?.url ?? 'about:blank')
+    // Extensions (D49) must be loaded before the page so their content scripts run on it.
+    const wc = v.webContents
+    const start = preset?.startUrl ?? a.custom?.url ?? 'about:blank'
+    if (enabledFor(a, installedIds()).length) void applyExtensions(a, wc, mainWin).finally(() => !wc.isDestroyed() && wc.loadURL(start))
+    else wc.loadURL(start)
     views.set(a.id, v)
   }
   return v
@@ -492,6 +577,7 @@ function setDialog(win: BrowserWindow, open: boolean): void {
   else attach(win, attached)
 }
 
+let mainWin: BrowserWindow | undefined
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1240,
@@ -511,6 +597,7 @@ function createWindow(): BrowserWindow {
       devTools
     }
   })
+  mainWin = win
   // Dev-only: GUISEDESK_SHOT_DIALOG=add opens the Add account dialog, =reset the reset confirm screen, for the screenshot.
   // =settings opens Settings with the sheet of account GUISEDESK_SHOT_SHEET.
   const dialogQuery =
@@ -558,7 +645,21 @@ function createWindow(): BrowserWindow {
     attached?.setBounds(panelBounds(win))
     if (!win.isDestroyed()) win.webContents.send('sidebar:changed', c)
   }
-  toggleSidebar = () => setSidebar(!sidebarCollapsed)
+  const sideLayout = loadSidebarLayout(dir)
+  sidebarWidth = clampSide(sideLayout.width)
+  sidebarHidden = sideLayout.hidden
+  const pushLayout = () => {
+    attached?.setBounds(panelBounds(win))
+    if (!win.isDestroyed()) win.webContents.send('sidebar:layout', { collapsed: sidebarCollapsed, hidden: sidebarHidden, width: sidebarWidth })
+  }
+  // Ctrl+B: a hidden sidebar comes back first; otherwise it switches between full and rail.
+  toggleSidebar = () => {
+    if (sidebarHidden) {
+      sidebarHidden = false
+      saveSidebarLayout(dir, { width: sidebarWidth, hidden: false })
+      pushLayout()
+    } else setSidebar(!sidebarCollapsed)
+  }
   let accounts = orderedAccounts(loadAccounts(dir))
   const enabled = () => accounts.filter((a) => !disabled.has(a.serviceId))
   let selectedId = loadSelected(dir)
@@ -568,12 +669,15 @@ function createWindow(): BrowserWindow {
   // Custom icons are cached files; the renderer gets them as data URLs.
   const snapshot = () => ({
     accounts: accounts.map((a) => {
-      const row = keeperDown.has(a.id) ? { ...a, keeperUnavailable: true } : a
+      const row0 = keeperDown.has(a.id) ? { ...a, keeperUnavailable: true } : a
+      const row = extErrors.has(a.id) ? { ...row0, extError: extErrors.get(a.id) } : row0
       return a.custom ? { ...row, custom: { ...a.custom, icon: readIcon(dir, a.custom.icon) } } : row
     }),
     selectedId,
     disabledServices: [...disabled],
-    sidebarCollapsed
+    sidebarCollapsed,
+    sidebarHidden,
+    sidebarWidth
   })
   // Zoom (D32): Ctrl+= / Ctrl+- / Ctrl+0 act on the shown account; saved per account, pushed to the renderer for the top bar chip.
   const changeZoom = (id: string, level: number) => {
@@ -602,7 +706,7 @@ function createWindow(): BrowserWindow {
   ipcMain.on('lock:lock', (e) => fromApp(e) && lock.lock())
   // Idle (D15): the app window and service views report mouse input through the preload; keys come from before-input-event.
   // The setting is read at start; Settings changes it through applyIdle (setMinutes).
-  const triggers = wireTriggers({ lock, power: powerMonitor, now: Date.now, minutes: loadIdleMinutes(dir) })
+  const triggers = wireTriggers({ lock, power: powerMonitor, now: Date.now, minutes: loadIdleMinutes(dir), schedule: loadSchedule(dir) })
   touchIdle = triggers.touch
   setInterval(triggers.check, 10_000).unref()
   ipcMain.removeAllListeners('idle:touch')
@@ -737,6 +841,16 @@ function createWindow(): BrowserWindow {
   gipc.handle('prefs:get', (e: { sender: { id: number } }) =>
     fromApp(e) ? { idleLock: loadIdleMinutes(dir), dnd, startOnLogin: isAutostart(autostartOpts()) } : undefined
   )
+  // Lock schedule (D51): saved, then handed to the running timer.
+  gipc.handle('prefs:schedule-get', (e: { sender: { id: number } }) => (fromApp(e) ? loadSchedule(dir) : undefined))
+  gipc.handle('prefs:schedule', (e: { sender: { id: number } }, v: unknown) => {
+    if (!fromApp(e)) return undefined
+    const s = normalizeSchedule(v)
+    saveSchedule(dir, s)
+    triggers.setSchedule(s)
+    appendEvent(dir, `lock schedule ${JSON.stringify(s)}`)
+    return s
+  })
   gipc.handle('prefs:idle', (e: { sender: { id: number } }, v: unknown) => fromApp(e) && applyIdle(dir, v, triggers))
   gipc.handle('prefs:dnd', (e: { sender: { id: number } }, on: unknown) => {
     if (!fromApp(e)) return false
@@ -763,6 +877,7 @@ function createWindow(): BrowserWindow {
   ipcMain.handle('lock:reset', async (e, typed) => {
     if (!fromApp(e) || lock.state() === 'setup') return { error: 'Refused' }
     if (typed !== RESET_WORD) return { error: `Type ${RESET_WORD} to confirm` }
+    appendEvent(dir, 'reset (all data wiped from the app)')
     const keys = new Set([...loadAccounts(dir).map(partitionKey), ...views.keys()])
     if (attached) detach(win, attached)
     attached = undefined
@@ -895,6 +1010,7 @@ function createWindow(): BrowserWindow {
     if (!a) return snapshot()
     // A shared login logs out every account on it, so their popups go too.
     for (const x of onPartition(a, accounts)) popups.closeFor(x.id)
+    appendEvent(dir, `logout ${id} (from the app)`)
     await logOut(dir, id, {
       clearStorage,
       closeView: () => {},
@@ -909,6 +1025,7 @@ function createWindow(): BrowserWindow {
     if (!accounts.some((a) => a.id === id)) return snapshot()
     popups.closeFor(id)
     try {
+      appendEvent(dir, `remove account ${id} (from the app)`)
       await removeAccount(dir, id, {
         clearStorage,
         reloadView: () => {},
@@ -940,6 +1057,18 @@ function createWindow(): BrowserWindow {
   gipc.handle('accounts:zoom-reset', (_e: unknown, id: string) => {
     if (accounts.some((a) => a.id === id)) changeZoom(id, 0)
     return snapshot()
+  })
+  gipc.on('sidebar:hidden', (e: { sender: { id: number } }, h: unknown) => {
+    if (!fromApp(e)) return
+    sidebarHidden = !!h
+    saveSidebarLayout(dir, { width: sidebarWidth, hidden: sidebarHidden })
+    pushLayout()
+  })
+  gipc.on('sidebar:width', (e: { sender: { id: number } }, w: unknown) => {
+    if (!fromApp(e)) return
+    sidebarWidth = clampSide(w)
+    saveSidebarLayout(dir, { width: sidebarWidth, hidden: sidebarHidden })
+    pushLayout()
   })
   gipc.on('sidebar:set', (e: { sender: { id: number } }, c: unknown) => fromApp(e) && setSidebar(!!c))
   // Reload (top bar): an asleep account wakes through the normal show path, otherwise its view reloads.
@@ -1031,6 +1160,73 @@ function createWindow(): BrowserWindow {
     if (held) held.blurParts = accounts.find((a) => a.id === id)?.blurParts
     if (v && !v.webContents.isDestroyed()) v.webContents.send('blur:set', blurState(accounts.find((a) => a.id === id)))
     return snapshot()
+  })
+  // Chrome extension switch (D49): saved, then loaded or unloaded in the live session and WhatsApp reloads.
+  onExtChange = () => { if (!win.isDestroyed() && isUnlocked()) win.webContents.send('accounts:zoom', snapshot()) }
+  const extList = () => listInstalled(extensionsDir(dir)).map(({ id, name, version }) => ({ id, name, version }))
+  gipc.handle('ext:list', (e: { sender: { id: number } }) => (fromApp(e) ? extList() : []))
+  // Add from a Chrome Web Store link (or id): downloaded once, then off for every account until turned on.
+  gipc.handle('ext:install', async (e: { sender: { id: number } }, link: string) => {
+    if (!fromApp(e)) return { error: 'Refused' }
+    const id = parseExtensionId(link)
+    if (!id) return { error: 'Paste a Chrome Web Store link, like https://chromewebstore.google.com/detail/name/<id>' }
+    try {
+      await fetchExtension(id)
+      appendEvent(dir, `extension installed ${id}`)
+      return { ok: true, list: extList() }
+    } catch (err) {
+      return { error: `Could not download it: ${String((err as Error)?.message ?? err)}` }
+    }
+  })
+  gipc.handle('ext:remove', async (e: { sender: { id: number } }, id: string) => {
+    if (!fromApp(e) || typeof id !== 'string' || !/^[a-p]{32}$/.test(id)) return extList()
+    for (const a of accounts) if (a.extensions?.includes(id)) accounts = orderedAccounts(setExtensions(dir, a.id, toggled(a.extensions, id, false)))
+    for (const [aid, v] of views) {
+      if (v.webContents.isDestroyed()) continue
+      const sx = v.webContents.session.extensions
+      if (sx.getExtension(id)) { sx.removeExtension(id); v.webContents.reload() }
+      const held = owner.get(v.webContents.id)
+      if (held) held.extensions = accounts.find((x) => x.id === aid)?.extensions
+    }
+    rmSync(join(extensionsDir(dir), id), { recursive: true, force: true })
+    appendEvent(dir, `extension removed ${id}`)
+    onExtChange()
+    return extList()
+  })
+  // On or off for one account: saved, loaded or unloaded in the live session, and the page reloads.
+  const setAccountExtension = async (id: string, extId: string, on: boolean) => {
+    const a0 = accounts.find((a) => a.id === id)
+    if (!a0 || !installedIds().includes(extId)) return
+    accounts = orderedAccounts(setExtensions(dir, id, toggled(a0.extensions, extId, on)))
+    const v = views.get(id)
+    const held = owner.get(v?.webContents.id ?? -1)
+    const a = accounts.find((x) => x.id === id)!
+    if (held) held.extensions = a.extensions
+    if (v && !v.webContents.isDestroyed()) {
+      await applyExtensions(held ?? a, v.webContents, win)
+      v.webContents.reload()
+    }
+  }
+  gipc.handle('accounts:extension', async (_e: unknown, id: string, extId: string, on: boolean) => {
+    if (typeof extId === 'string') await setAccountExtension(id, extId, !!on)
+    return snapshot()
+  })
+  // Puzzle button in the top bar: a native menu (it draws above the page) with every installed extension.
+  gipc.on('ext:menu', (e: { sender: { id: number } }, id: string) => {
+    const a = fromApp(e) && accounts.find((x) => x.id === id)
+    if (!a) return
+    const v = views.get(a.id)
+    const list = extList()
+    const on = new Set(a.extensions ?? [])
+    const items: Electron.MenuItemConstructorOptions[] = list.length
+      ? list.flatMap((x) => [
+          { label: x.name, enabled: on.has(x.id) && !!v, click: () => v && activateExtension(v.webContents, x.id, win) },
+          { label: `On for ${a.label}`, type: 'checkbox' as const, checked: on.has(x.id), click: () => void setAccountExtension(a.id, x.id, !on.has(x.id)).then(onExtChange) },
+          { type: 'separator' as const }
+        ])
+      : [{ label: 'No extensions yet', enabled: false }, { type: 'separator' as const }]
+    items.push({ label: 'Add or manage extensions...', click: () => win.webContents.send('settings:open-tab', 'Extensions') })
+    Menu.buildFromTemplate(items).popup({ window: win })
   })
   gipc.handle('accounts:keepdeleted', (_e: unknown, id: string, on: boolean) => {
     if (!accounts.some((a) => a.id === id)) return snapshot()
@@ -1138,7 +1334,47 @@ function createWindow(): BrowserWindow {
   return win
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  appendEvent(dir, `start v${version} electron ${process.versions.electron}`)
+  createWindow()
+  setTimeout(() => void checkLogins(), 15_000)
+})
+
+/** Lost-login check (D50): compares each account's login cookie with the last start and logs any that vanished. */
+async function checkLogins(): Promise<void> {
+  try {
+    const file = join(dir, 'logins.json')
+    let prev: Record<string, boolean> = {}
+    try { prev = JSON.parse(readFileSync(file, 'utf8')) } catch { /* first run */ }
+    const now: Record<string, boolean> = {}
+    for (const a of loadAccounts(dir)) {
+      const rule = LOGIN_COOKIES[a.serviceId]
+      if (!rule?.names.length) continue
+      const ses = session.fromPartition(partitionOf(a))
+      const cookies = await ses.cookies.get({ domain: rule.domain })
+      now[a.id] = rule.names.every((n) => cookies.some((c) => c.name === n))
+    }
+    for (const id of lostLogins(prev, now)) {
+      const a = loadAccounts(dir).find((x) => x.id === id)
+      appendEvent(dir, `lost login ${a?.serviceId} "${a?.label}" (${id}): login cookie gone since last start`)
+    }
+    writeFileSync(file, JSON.stringify(now))
+  } catch (err) {
+    appendEvent(dir, `login check failed ${String(err)}`)
+  }
+}
 app.on('before-quit', () => {
   quitting = true
+  appendEvent(dir, 'quit')
+  // Write cookies and storage to disk before exit, so a quit or update right after a login keeps it.
+  for (const v of views.values()) {
+    if (v.webContents.isDestroyed()) continue
+    void v.webContents.session.cookies.flushStore().catch(() => {})
+    v.webContents.session.flushStorageData()
+  }
+})
+// Session end (logout/shutdown) and kill: same flush, then exit.
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(sig, () => {
+  appendEvent(dir, `signal ${sig}`)
+  app.quit()
 })

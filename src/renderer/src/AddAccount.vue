@@ -58,8 +58,9 @@ function submit() {
 </script>
 
 <template>
-  <div class="veil" @keydown.esc="emit('cancel')">
+  <div class="veil" @click.self="emit('cancel')">
     <div class="glass" role="dialog" aria-label="Add an account">
+      <button class="ib x" title="Close (Esc)" aria-label="Close" @click="emit('cancel')"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
       <h3>Add an account</h3>
       <p class="sub">Each account gets its own sealed session. You'll log in inside GuiseDesk right after.</p>
       <div class="pick">

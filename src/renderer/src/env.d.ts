@@ -20,6 +20,9 @@ interface AccountRow {
   blurMedia?: boolean
   blurParts?: Partial<Record<'messages' | 'previews' | 'avatars' | 'names', boolean>>
   keepDeleted?: boolean
+  /** Chrome extension ids on for this account (D49). */
+  extensions?: string[]
+  extError?: string
   keeperUnavailable?: boolean
   zoom?: number
   idlePolicy?: string
@@ -32,6 +35,22 @@ interface BlockSnapshot {
   accounts: Record<string, { blocked: number; popup?: string; total?: number; popups?: number; hosts?: Record<string, number> }>
 }
 
+interface LockScheduleRow {
+  on: boolean
+  days: number[]
+  start: string
+  end: string
+  workMinutes: number
+  offMinutes: number
+  count: 'unlock' | 'idle'
+}
+
+interface ExtensionRow {
+  id: string
+  name: string
+  version: string
+}
+
 interface Snapshot {
   accounts: AccountRow[]
   selectedId?: string
@@ -39,6 +58,8 @@ interface Snapshot {
   disabledServices: string[]
   /** Sidebar shown as the 64px rail (D24). */
   sidebarCollapsed?: boolean
+  sidebarHidden?: boolean
+  sidebarWidth?: number
 }
 
 interface LockInfo {
@@ -65,6 +86,9 @@ interface Window {
     setupLock(kind: 'pin' | 'password', secret: string, repeat: string): Promise<{ ok: true } | { error: string }>
     lock(): void
     /** Settings that act at once: idle lock minutes, Do Not Disturb, start on login (autostart entry present). */
+    /** Lock schedule (D51): work-hours and off-hours lock limits. setSchedule returns the saved (normalized) value. */
+    schedule(): Promise<LockScheduleRow>
+    setSchedule(s: LockScheduleRow): Promise<LockScheduleRow>
     prefs(): Promise<{ idleLock: 5 | 10 | 30 | 'manual'; dnd: boolean; startOnLogin: boolean }>
     setIdle(minutes: 5 | 10 | 30 | 'manual'): Promise<boolean>
     setDnd(on: boolean): Promise<boolean>
@@ -87,6 +111,10 @@ interface Window {
     setSidebar(collapsed: boolean): void
     /** Main changed the sidebar (Ctrl+B). */
     onSidebar(cb: (collapsed: boolean) => void): void
+    /** Hide the sidebar completely, or set its full width by dragging (D52). Main resizes the page and pushes the layout. */
+    setSidebarHidden(hidden: boolean): void
+    setSidebarWidth(width: number): void
+    onSidebarLayout(cb: (l: { collapsed: boolean; hidden: boolean; width: number }) => void): void
     /** Dialog open: main detaches the service view so the dialog is not hidden behind it. */
     dialog(open: boolean): void
     /** Top bar Reload: reloads the account's view, or wakes it when asleep. */
@@ -109,6 +137,14 @@ interface Window {
     /** One WhatsApp privacy blur part on or off (D48). */
     setBlurPart(id: string, part: string, on: boolean): Promise<Snapshot>
     setKeepDeleted(id: string, on: boolean): Promise<Snapshot>
+    /** Turn a known Chrome extension on or off for one account (D49); WhatsApp reloads. */
+    setExtension(id: string, extId: string, on: boolean): Promise<Snapshot>
+    /** Installed Chrome extensions (D49), install from a store link, remove (off for every account). */
+    extensions(): Promise<ExtensionRow[]>
+    installExtension(link: string): Promise<{ ok: true; list: ExtensionRow[] } | { error: string }>
+    removeExtension(id: string): Promise<ExtensionRow[]>
+    /** Puzzle button: main shows the extensions menu for this account. */
+    extensionMenu(id: string): void
     /** An external link matches several accounts (D40): pick one, 'browser', or null to cancel. */
     onLinkChoose(cb: (r: LinkChoice) => void): void
     chooseLink(id: number, choice: string | null): void

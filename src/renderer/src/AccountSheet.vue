@@ -9,7 +9,7 @@ import { logoStyle } from './logos'
 
 const props = defineProps<{
   account: {
-    id: string; serviceId: string; label: string; colour: string; idlePolicy?: string; muted?: boolean; blurMedia?: boolean; blurParts?: Record<string, boolean>; keepDeleted?: boolean; keeperUnavailable?: boolean; shareWith?: string
+    id: string; serviceId: string; label: string; colour: string; idlePolicy?: string; muted?: boolean; blurMedia?: boolean; blurParts?: Record<string, boolean>; keepDeleted?: boolean; keeperUnavailable?: boolean; extensions?: string[]; extError?: string; shareWith?: string
     custom?: { name: string; icon?: string }
   }
   accounts?: { id: string; serviceId: string; label: string; shareWith?: string }[]
@@ -33,8 +33,9 @@ function logout() {
 </script>
 
 <template>
-  <div class="veil" @keydown.esc="emit('done')">
+  <div class="veil" @click.self="emit('done')">
     <div class="glass sheet" role="dialog" :aria-label="`${account.label} settings`">
+      <button class="ib x" title="Close (Esc)" aria-label="Close" @click="emit('done')"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
       <div class="sh">
         <span class="av big" :style="{ background: account.colour }">{{ initials(account.label) }}<span class="svc" :style="logoStyle(account.serviceId)"><LogoGlyph :service-id="account.serviceId" :icon="account.custom?.icon" /></span></span>
         <div><h3>{{ account.label }}</h3><div class="hint">{{ serviceName() }} account</div></div>
@@ -62,6 +63,7 @@ function logout() {
         <button class="tg" :class="{ on: account.keepDeleted }" role="switch" :aria-checked="!!account.keepDeleted" aria-label="Keep deleted messages" @click="emit('keepDeleted', !account.keepDeleted)"></button>
       </div>
       <div v-if="presetFor(account.serviceId)?.keepDeleted && account.keepDeleted && account.keeperUnavailable" class="hint warn">Deleted-message keeper unavailable (WhatsApp changed)</div>
+      <div v-if="account.extError" class="hint warn">Extension could not be installed: {{ account.extError }}</div>
       <div v-if="host" class="hint share">Shares login with {{ host.label }}</div>
       <div v-else-if="others.length" class="hint share">Login shared with {{ others.map((a) => a.label).join(', ') }}</div>
       <div v-if="alsoOut" class="hint warn">Also logs out {{ alsoOut }}</div>

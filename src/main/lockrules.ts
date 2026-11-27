@@ -1,7 +1,7 @@
 // Setup rules for the app lock (D14). No node imports: the setup screen and main share it.
 export type LockKind = 'pin' | 'password'
 
-export const PIN_MIN = 6
+export const PIN_MIN = 4
 export const PIN_MAX = 12
 export const PASSWORD_MIN = 8
 export const PASSWORD_MAX = 128

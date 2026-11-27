@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AddAccount from './AddAccount.vue'
 import AccountSheet from './AccountSheet.vue'
 import AsleepPanel from './AsleepPanel.vue'
@@ -23,6 +23,9 @@ const sleeping = computed(() => accounts.value.find((a) => a.id === selectedId.v
 const disabled = ref<string[]>([])
 // Sidebar rail (D24): main owns and saves it (it also sizes the service view); Ctrl+B in main arrives through onSidebar.
 const collapsed = ref(false)
+// Fully hidden sidebar and its dragged width (D52).
+const sideHidden = ref(false)
+const sideWidthPx = ref(232)
 const shown = computed(() => visibleAccounts(accounts.value, disabled.value))
 // Settings fills the main area; main detaches the service view while it is open (like a dialog). The sheet only exists inside it.
 const settingsOpen = ref(false)
@@ -48,6 +51,8 @@ async function loadAccounts() {
   selectedId.value = s.selectedId
   disabled.value = s.disabledServices
   collapsed.value = !!s.sidebarCollapsed
+  sideHidden.value = !!s.sidebarHidden
+  if (typeof s.sidebarWidth === 'number') sideWidthPx.value = s.sidebarWidth
   counts.value = await window.guisedesk.unread()
   sleep.value = await window.guisedesk.sleep()
   update.value = await window.guisedesk.updateState()
@@ -77,6 +82,19 @@ async function apply(info: LockInfo) {
   ready.value = true
 }
 
+// Esc closes the topmost layer (D53): a link choice, then Add account, then the account sheet, then Settings.
+function onEsc(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || lockInfo.value.state !== 'unlocked') return
+  if (choosing.value) chosen(null)
+  else if (adding.value) closeAdd()
+  else if (sheetId.value) sheetId.value = undefined
+  else if (settingsOpen.value) closeSettings()
+  else return
+  e.preventDefault()
+}
+onMounted(() => window.addEventListener('keydown', onEsc))
+onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
+
 onMounted(async () => {
   window.guisedesk.onLock((info) => void apply(info))
   window.guisedesk.onSleep((s) => (sleep.value = s))
@@ -90,6 +108,11 @@ onMounted(async () => {
     void nextTick(() => (settingsTab.value = t))
   })
   window.guisedesk.onSidebar((c) => (collapsed.value = c))
+  window.guisedesk.onSidebarLayout?.((l) => {
+    collapsed.value = l.collapsed
+    sideHidden.value = l.hidden
+    sideWidthPx.value = l.width
+  })
   window.guisedesk.onUnread((c) => (counts.value = { ...c }))
   window.guisedesk.onSelected((id) => {
     selectedId.value = id
@@ -136,12 +159,19 @@ async function setBlurPart(id: string, part: string, on: boolean) {
   take(await window.guisedesk.setBlurPart(id, part, on))
 }
 
+async function setExtension(id: string, extId: string, on: boolean) {
+  take(await window.guisedesk.setExtension(id, extId, on))
+}
+
 async function setKeepDeleted(id: string, on: boolean) {
   take(await window.guisedesk.setKeepDeleted(id, on))
 }
 
 // Ad and pop-up blocking chips (D45), pushed by main.
 const block = ref<BlockSnapshot>({ ads: false, accounts: {} })
+function extensionMenu(id: string) {
+  window.guisedesk.extensionMenu(id)
+}
 function shieldMenu(id: string) {
   window.guisedesk.shieldMenu(id)
 }
@@ -168,6 +198,14 @@ function lockNow() {
   window.guisedesk.lock()
 }
 
+function hideSidebar(h: boolean) {
+  sideHidden.value = h
+  window.guisedesk.setSidebarHidden(h)
+}
+function resizeSidebar(w: number) {
+  sideWidthPx.value = w
+  window.guisedesk.setSidebarWidth(w)
+}
 function toggleSidebar() {
   window.guisedesk.setSidebar(!collapsed.value)
 }
@@ -257,9 +295,10 @@ async function add(input: Parameters<Window['guisedesk']['add']>[0]) {
   <ResetScreen v-else-if="resetting" @cancel="resetting = false" />
   <LockScreen v-else-if="lockInfo.state === 'locked'" :kind="lockInfo.kind ?? 'pin'" :pin-length="lockInfo.pinLength" :wait-until="lockInfo.waitUntil" @forgot="resetting = true" />
   <div v-else class="shell">
-    <Sidebar :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" :update="update.state === 'available'" @update="openUpdates" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
+    <div v-if="sideHidden" class="sidestrip"><button class="showside" title="Show sidebar (Ctrl+B)" aria-label="Show sidebar" @click="hideSidebar(false)"><svg class="i" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" /></svg></button></div>
+    <Sidebar v-if="!sideHidden" :width="sideWidthPx" @hide="hideSidebar(true)" @resize="resizeSidebar" :accounts="shown" :selected-id="selectedId" :counts="counts" :asleep="asleepIds" :collapsed="collapsed" :update="update.state === 'available'" @update="openUpdates" @toggle="toggleSidebar" @select="select" @add="openAdd" @mute="mute" @sleep="sleepNow" @reorder="reorder" @settings="openSettings" @account="openSheet" />
     <main class="main">
-      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" />
+      <TopBar v-if="!settingsOpen && current" :account="current" :asleep="!!sleep[current.id]" @reload="reload(current!.id)" @mute="(m) => mute(current!.id, m)" @lock="lockNow" @sleep="sleepNow(current!.id)" @settings="openSheet(current.id)" @reset-zoom="resetZoom(current!.id)" :ads-on="block.ads" :blocked="block.accounts[current.id]?.blocked ?? 0" :popup="block.accounts[current.id]?.popup" @open-popup="openBlockedPopup(current!.id)" @shield="shieldMenu(current!.id)" @extensions="extensionMenu(current!.id)" />
       <Settings v-if="settingsOpen" :accounts="accounts" :disabled="disabled" :update="update" :tab="settingsTab" @check="checkUpdate" @apply="applyUpdate" @back="closeSettings" @toggle="toggleService" @open="(id) => (sheetId = id)" @unmute="(id) => mute(id, false)" @reset="resetting = true" />
       <AsleepPanel v-else-if="sleeping" :account="sleeping" :minutes="sleep[sleeping.id].minutes" @wake="select(sleeping.id)" />
       <div v-else class="panel"></div>

@@ -13,8 +13,9 @@ const serviceName = (id: string) => presetFor(id)?.name ?? 'Custom site'
 </script>
 
 <template>
-  <div ref="veil" class="veil" tabindex="-1" @keydown.esc="emit('choose', null)" @click.self="emit('choose', null)">
+  <div ref="veil" class="veil" tabindex="-1" @keydown.esc.stop="emit('choose', null)" @click.self="emit('choose', null)">
     <div class="glass" role="dialog" aria-label="Open link in">
+      <button class="ib x" title="Close (Esc)" aria-label="Close" @click="emit('choose', null)"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
       <h3>Open link in</h3>
       <p class="sub url">{{ short(url) }}</p>
       <div class="row" v-for="c in candidates" :key="c.id" @click="emit('choose', c.id)">
