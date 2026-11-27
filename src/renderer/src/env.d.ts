@@ -58,6 +58,21 @@ interface ExtensionUpdateResult {
   updated: { id: string; version: string }[]
 }
 
+/** What an exported backup holds (D61). The restore dialog shows these details before replacing anything. */
+interface BackupManifest {
+  app: 'guisedesk'
+  format: number
+  created: string
+  version: string
+  includeLogins: boolean
+  accounts: number
+  settings: boolean
+  lock: boolean
+  extensions: string[]
+  files: number
+  bytes: number
+}
+
 interface Snapshot {
   accounts: AccountRow[]
   selectedId?: string
@@ -185,6 +200,11 @@ interface Window {
     updateCheck(): Promise<UpdateInfo>
     updateApply(): Promise<boolean>
     onUpdate(cb: (u: UpdateInfo) => void): void
+    /** Backup and restore (D61): export writes one encrypted file; a restore is staged for the next start. */
+    exportBackup(v: { password: string; includeLogins: boolean }): Promise<{ ok: true; file: string; manifest?: BackupManifest } | { canceled: true } | { error: string }>
+    pickBackup(): Promise<{ file: string } | { canceled: true }>
+    inspectBackup(v: { file: string; password: string }): Promise<{ manifest: BackupManifest } | { error: string }>
+    restoreBackup(v: { file: string; password: string }): Promise<{ ok: true; manifest: BackupManifest } | { error: string }>
     /** Downloads (D31): the folder in use (the system Downloads dir by default) and the ask switch; pick opens a folder picker and saves it. */
     downloads(): Promise<{ dir: string; ask: boolean }>
     setDownloadsAsk(ask: boolean): Promise<boolean>

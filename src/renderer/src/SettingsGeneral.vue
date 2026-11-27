@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { version } from '../../../package.json'
+import BackupDialog from './BackupDialog.vue'
 
 const props = defineProps<{ update: UpdateInfo }>()
 const emit = defineEmits<{ check: []; apply: []; shortcuts: [] }>()
@@ -55,6 +56,8 @@ async function toggle() {
   const next = !on.value
   if (await window.guisedesk.setStartOnLogin(next)) on.value = next
 }
+
+const backupMode = ref<'export' | 'restore' | undefined>()
 </script>
 
 <template>
@@ -96,6 +99,17 @@ async function toggle() {
       </div>
     </div>
     <div class="card">
+      <h4>Backup</h4>
+      <div class="sr">
+        <span class="t"><b>Export backup</b><span>One encrypted file with accounts, settings, lock and extensions. You can include saved logins.</span></span>
+        <button class="btn" @click="backupMode = 'export'">Export backup...</button>
+      </div>
+      <div class="sr">
+        <span class="t"><b>Restore backup</b><span>Open a backup on the next start. It replaces all current data.</span></span>
+        <button class="btn" @click="backupMode = 'restore'">Restore backup...</button>
+      </div>
+    </div>
+    <div class="card">
       <h4>Updates</h4>
       <div class="sr">
         <span class="t"><b>GuiseDesk v{{ version }}</b><span v-if="custom" class="custom">{{ customText }}</span><span>{{ status }}</span></span>
@@ -104,6 +118,7 @@ async function toggle() {
         <button v-else-if="update.state === 'available'" class="btn pri" @click="emit('apply')">Update and restart</button>
       </div>
     </div>
+    <BackupDialog v-if="backupMode" :mode="backupMode" @close="backupMode = undefined" />
   </div>
 </template>
 

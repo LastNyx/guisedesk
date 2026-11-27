@@ -46,6 +46,9 @@ import { PARTS, partsOn, type Part } from '../preload/blur'
 import { onPartition, partitionKey, partitionOf } from './sharing'
 import { secondLaunch } from './singleinstance'
 import { clampSide, isSidebarShortcut, panelBounds as layoutBounds } from './layout'
+import { applyPendingRestore } from './backup'
+import { backupFileName } from './backuprules'
+import { runBackupWorker } from './backupengine'
 
 // Both must run before `ready`. setName first: it resets the default userData path, which setPath then overrides,
 // so sessions and partitions still land in the chosen dir. The name is what notifications and the tray show.
@@ -59,6 +62,19 @@ app.setPath('userData', dir)
 if (!app.requestSingleInstanceLock()) {
   app.quit()
   process.exit(0)
+}
+
+// A restore staged before the last quit (D61) is applied now, before the lock, any session or any window exists.
+// The encrypted backup is unpacked into a pending file at confirm time, so no password is stored across restarts.
+let restoredExtensions: string[] = []
+try {
+  const restored = applyPendingRestore(dir)
+  if (restored) {
+    restoredExtensions = restored.extensions
+    appendEvent(dir, `restored backup (${restored.accounts} accounts, ${restored.extensions.length} extensions${restored.includeLogins ? ', with logins' : ''})`)
+  }
+} catch (err) {
+  appendEvent(dir, `restore failed ${String((err as Error)?.message ?? err)}`)
 }
 
 // Content panel inside the renderer layout (D26 compact): numbers in layout.ts, shared with Sidebar.vue.
@@ -974,6 +990,83 @@ function createWindow(): BrowserWindow {
     if (picked) saveDownloads(dir, { ...loadDownloads(dir), dir: picked })
     return picked
   })
+  // Backup and restore (D61): export packs in a worker and writes one encrypted file; restore is staged, then
+  // applied by the next start before any session exists.
+  const backupInput = (v: unknown) =>
+    v && typeof v === 'object' ? (v as { file?: unknown; password?: unknown; includeLogins?: unknown }) : undefined
+  gipc.handle('backup:export', async (e: { sender: { id: number } }, raw: unknown) => {
+    if (!fromApp(e)) return { error: 'Refused' }
+    const v = backupInput(raw)
+    const password = typeof v?.password === 'string' ? v.password : ''
+    if (password.length < 8) return { error: 'Use at least 8 characters.' }
+    const includeLogins = v?.includeLogins === true
+    const picked = await dialog.showSaveDialog(win, {
+      title: 'Export backup',
+      defaultPath: join(app.getPath('documents'), backupFileName(new Date())),
+      filters: [{ name: 'GuiseDesk backup', extensions: ['gdbackup'] }]
+    })
+    if (picked.canceled || !picked.filePath) return { canceled: true }
+    const file = picked.filePath.toLowerCase().endsWith('.gdbackup') ? picked.filePath : `${picked.filePath}.gdbackup`
+    try {
+      // Flush cookies and storage first, so the partition copy on disk is as fresh as the running sessions allow.
+      if (includeLogins) {
+        for (const key of new Set(accounts.map(partitionKey))) {
+          const ses = session.fromPartition(`persist:${key}`)
+          await ses.cookies.flushStore().catch(() => {})
+          ses.flushStorageData()
+        }
+      }
+      const made = await runBackupWorker({ op: 'export', dataDir: dir, includeLogins, password, version })
+      if (!made.bytes) return { error: 'The backup could not be created.' }
+      writeAtomic(file, made.bytes, undefined, 0o600)
+      appendEvent(dir, `backup exported ${basename(file)}${includeLogins ? ' with logins' : ''}`)
+      return { ok: true, file, manifest: made.manifest }
+    } catch (err) {
+      console.error('[guisedesk] backup export failed', err)
+      appendEvent(dir, `backup export failed ${String((err as Error)?.message ?? err)}`)
+      return { error: `Could not create the backup: ${String((err as Error)?.message ?? err)}` }
+    }
+  })
+  gipc.handle('backup:pick', async (e: { sender: { id: number } }) => {
+    if (!fromApp(e)) return { canceled: true }
+    const picked = await dialog.showOpenDialog(win, {
+      title: 'Restore backup',
+      properties: ['openFile'],
+      filters: [{ name: 'GuiseDesk backup', extensions: ['gdbackup'] }]
+    })
+    return picked.canceled || !picked.filePaths[0] ? { canceled: true } : { file: picked.filePaths[0] }
+  })
+  gipc.handle('backup:inspect', async (e: { sender: { id: number } }, raw: unknown) => {
+    if (!fromApp(e)) return { error: 'Refused' }
+    const v = backupInput(raw)
+    const file = typeof v?.file === 'string' ? v.file : ''
+    const password = typeof v?.password === 'string' ? v.password : ''
+    if (!file || !password) return { error: 'Choose the backup file and type its password.' }
+    try {
+      const r = await runBackupWorker({ op: 'inspect', file, password })
+      return { manifest: r.manifest }
+    } catch (err) {
+      return { error: String((err as Error)?.message ?? err) }
+    }
+  })
+  gipc.handle('backup:restore', async (e: { sender: { id: number } }, raw: unknown) => {
+    if (!fromApp(e)) return { error: 'Refused' }
+    const v = backupInput(raw)
+    const file = typeof v?.file === 'string' ? v.file : ''
+    const password = typeof v?.password === 'string' ? v.password : ''
+    if (!file || !password) return { error: 'Choose the backup file and type its password.' }
+    try {
+      const r = await runBackupWorker({ op: 'prepare', file, password, dataDir: dir })
+      if (!r.manifest) return { error: 'The backup could not be restored.' }
+      appendEvent(dir, `restore prepared (${r.manifest.accounts} accounts, ${r.manifest.extensions.length} extensions${r.manifest.includeLogins ? ', with logins' : ''}); quitting`)
+      // Give the reply time to reach the renderer; the window may show "Restoring..." for a moment.
+      setTimeout(() => app.quit(), 200)
+      return { ok: true, manifest: r.manifest }
+    } catch (err) {
+      appendEvent(dir, `restore failed ${String((err as Error)?.message ?? err)}`)
+      return { error: `Could not restore the backup: ${String((err as Error)?.message ?? err)}` }
+    }
+  })
   // Ad and pop-up blocking (D45): Settings > General. Ads apply to every open session at once; pop-ups to the next window.open.
   gipc.handle('blocking:get', (e: { sender: { id: number } }) => (fromApp(e) ? blocking : undefined))
   gipc.handle('blocking:set', async (e: { sender: { id: number } }, v: { ads?: unknown; popups?: unknown }) => {
@@ -1578,6 +1671,12 @@ function createWindow(): BrowserWindow {
 app.whenReady().then(() => {
   appendEvent(dir, `start v${version} electron ${process.versions.electron}`)
   createWindow()
+  // A restored backup lists extension ids, not their files: download them again in the background (D61).
+  for (const id of restoredExtensions) {
+    void fetchExtension(id, true)
+      .then(() => appendEvent(dir, `extension restored ${id}`))
+      .catch((err) => appendEvent(dir, `extension restore failed ${id} ${String((err as Error)?.message ?? err)}`))
+  }
   scheduleLoginCheck(15_000)
 })
 

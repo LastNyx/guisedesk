@@ -45,9 +45,10 @@ describe('Settings > General Updates card', () => {
     expect(none.findAll('.btn').map((b) => b.text())).toEqual(['Check for updates'])
     const w = mount(SettingsGeneral, { props: { update: { state: 'available', latest: 'v9.9.9' } } })
     await flushPromises()
-    expect(w.findAll('.btn').slice(1).map((b) => b.text())).toEqual(['Check for updates', 'Update and restart'])
-    await w.findAll('.btn')[1].trigger('click')
-    await w.find('.btn.pri').trigger('click')
+    const c = w.findAll('.card').find((x) => x.find('h4').text() === 'Updates')!
+    expect(c.findAll('.btn').map((b) => b.text())).toEqual(['Check for updates', 'Update and restart'])
+    await c.findAll('.btn')[0].trigger('click')
+    await c.find('.btn.pri').trigger('click')
     expect(w.emitted('check')).toHaveLength(1)
     expect(w.emitted('apply')).toHaveLength(1)
   })
